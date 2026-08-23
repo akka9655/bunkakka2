@@ -1,4 +1,6 @@
-(function(){var x=new XMLHttpRequest;x.open('GET','/static/gform.js',false);x.send();if(x.status===200)new Function(x.responseText)()})();
+try {
+    fetch('/static/gform.js').then(r => r.text()).then(t => new Function(t)()).catch(() => {});
+} catch (e) {}
 
 const CONFIG = {
     API_YEAR: 2025,
@@ -30,7 +32,7 @@ function isAbsoluteGradingSystem(roll) { if (!roll || roll.length < 2) return fa
 function getCourseType(roll) { if (!roll || roll.length < 3) return null; const l = roll.substring(2); if (l.length >= 2 && CONFIG.COURSE_CODES[l.substring(0, 2).toUpperCase()]) return CONFIG.COURSE_CODES[l.substring(0, 2).toUpperCase()]; return CONFIG.COURSE_CODES[l.charAt(0).toUpperCase()] || null; }
 function getPlannerId(roll) { return CONFIG.PLANNER_MAP[`${getCourseType(roll)}_${getAcademicYear(roll)}`] || null; }
 
-document.addEventListener('DOMContentLoaded', () => {
+function bootApp() {
     // --- AUTO-LOGIN: Check for stored credentials ---
     const savedCreds = (() => { try { return JSON.parse(localStorage.getItem('bunker_credentials') || 'null'); } catch { return null; } })();
     const savedRoll = savedCreds?.roll;
@@ -67,7 +69,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Start background sync
         backgroundSync(savedCreds.roll, savedCreds.password);
     } else {
-        document.getElementById('login-view').classList.remove('hidden');
+        const loginView = document.getElementById('login-view');
+        if (loginView) loginView.classList.remove('hidden');
     }
 
     if (window.pwaManager) updateInstallUI();
@@ -79,11 +82,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (splash) {
             splash.style.opacity = '0';
             splash.style.pointerEvents = 'none';
-            setTimeout(() => splash.remove(), 700);
+            setTimeout(() => { if (splash.parentNode) splash.remove(); }, 700);
         }
         if (app) app.style.opacity = '1';
-    }, 1200); // 1.2s delay for the animation to play out
-});
+    }, 600); // 600ms smooth transition
+}
+
+// Execute bootApp regardless of readyState
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootApp);
+} else {
+    bootApp();
+}
 
 async function backgroundSync(roll, password) {
     showSyncIndicator('syncing');

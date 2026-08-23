@@ -336,9 +336,28 @@
             document.documentElement.setAttribute('data-perf', perf);
             console.log(`Smart Bunker: Performance Mode set to ${perf.toUpperCase()} (RAM: ${navigator.deviceMemory || 'Unknown'})`);
         })();
+
+        // Bulletproof Splash Screen Auto-Dismiss Guard (Guarantees splash never gets stuck)
+        (function() {
+            function forceDismissSplash() {
+                var splash = document.getElementById('premium-splash');
+                var app = document.getElementById('app');
+                var login = document.getElementById('login-view');
+                var dash = document.getElementById('dashboard-view');
+                if (splash && splash.style.opacity !== '0') {
+                    splash.style.opacity = '0';
+                    splash.style.pointerEvents = 'none';
+                    setTimeout(function() { if (splash && splash.parentNode) splash.remove(); }, 700);
+                    if (app) app.style.opacity = '1';
+                    if (login && dash && login.classList.contains('hidden') && dash.classList.contains('hidden')) {
+                        login.classList.remove('hidden');
+                    }
+                }
+            }
+            window.addEventListener('load', function() { setTimeout(forceDismissSplash, 1500); });
+            setTimeout(forceDismissSplash, 2500); // 2.5s absolute maximum safety ceiling
+        })();
     </script>
-
-
 </head>
 
 <body>    <!-- Cinematic Liquid Glass Splash Screen -->
