@@ -114,7 +114,35 @@ CONFIG = {
 # ===== END OF EDITABLE SECTION =====
 # ============================================================================
 
-app = Flask(__name__, template_folder='templates', static_folder='../static')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, '..'))
+
+# Locate template directory (supports local, serverless & container environments)
+TEMPLATES_CANDIDATES = [
+    os.path.join(BASE_DIR, 'templates'),
+    os.path.join(ROOT_DIR, 'templates'),
+    'templates',
+    'api/templates'
+]
+template_dir = os.path.join(BASE_DIR, 'templates')
+for cand in TEMPLATES_CANDIDATES:
+    if os.path.isdir(cand):
+        template_dir = cand
+        break
+
+STATIC_CANDIDATES = [
+    os.path.join(ROOT_DIR, 'static'),
+    os.path.join(BASE_DIR, 'static'),
+    'static',
+    '../static'
+]
+static_dir = os.path.join(ROOT_DIR, 'static')
+for cand in STATIC_CANDIDATES:
+    if os.path.isdir(cand):
+        static_dir = cand
+        break
+
+app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 
 session_secret = os.environ.get("SESSION_SECRET")
 if not session_secret:
