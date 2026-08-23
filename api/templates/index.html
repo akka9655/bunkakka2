@@ -354,10 +354,27 @@
                     }
                 }
             }
-            window.addEventListener('load', function() { setTimeout(forceDismissSplash, 1500); });
-            setTimeout(forceDismissSplash, 2500); // 2.5s absolute maximum safety ceiling
+            window.addEventListener('load', function() { setTimeout(forceDismissSplash, 1200); });
+            setTimeout(forceDismissSplash, 2000); // 2s absolute safety ceiling
         })();
     </script>
+    <style>
+        /* Anti-Flash Dark Theme Enforcement */
+        html, body {
+            background-color: #040308 !important;
+            color: #ffffff !important;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            width: 100%;
+            height: 100vh;
+            height: 100dvh;
+        }
+        .hidden { display: none !important; }
+        .sr-only { display: none !important; position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; }
+        #app { opacity: 1 !important; }
+        iframe[id*="google"], ins.adsbygoogle { background: transparent !important; }
+    </style>
 </head>
 
 <body>    <!-- Cinematic Liquid Glass Splash Screen -->
@@ -489,7 +506,7 @@
     </div>
 
     <!-- Main App -->
-    <div id="app" class="relative z-10 w-full h-full max-w-md mx-auto flex flex-col bg-transparent opacity-0 transition-opacity duration-700 ease-out">
+    <div id="app" class="relative z-10 w-full h-full max-w-md mx-auto flex flex-col bg-transparent transition-opacity duration-500 ease-out">
 
         <!-- LOGIN VIEW (Production Ready & Ultra-Modern) -->
         <div id="login-view" class="absolute inset-0 z-50 flex flex-col justify-center px-6">
@@ -1334,7 +1351,7 @@
     </div>
 
     <!-- Semantically Rich SEO & Accessibility Section (Hidden from visual view, indexed by Search Engines) -->
-    <section class="sr-only" aria-label="Bunker Attendance Tracker for PSG Tech and CEG Students">
+    <section class="sr-only" style="display:none !important;" aria-label="Bunker Attendance Tracker for PSG Tech and CEG Students">
         <h2>Smart Attendance &amp; Bunk Planner for PSG College of Technology &amp; CEG (Anna University)</h2>
         <p>
             Bunker is a specialized utility designed for students of PSG College of Technology (PSG Tech), PSG Institute of Advanced Studies (PSG IAS), and College of Engineering Guindy (CEG, Anna University).
