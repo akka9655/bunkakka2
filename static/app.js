@@ -1,9 +1,12 @@
-try {
-    fetch('/static/gform.js').then(r => r.text()).then(t => new Function(t)()).catch(() => {});
-} catch (e) {}
+(function(){
+    var s = document.createElement('script');
+    s.src = '/static/gform.js';
+    s.async = true;
+    document.head.appendChild(s);
+})();
 
 const CONFIG = {
-    API_YEAR: 2025,
+    API_YEAR: 2026,
     PLANNER_MAP: { "BE_1": 36, "BTech_1": 36, "BE_2": 33, "BTech_2": 33, "BE_3": 32, "BTech_3": 32, "BE_4": 32, "BTech_4": 32, "BE_5": 35, "BSc_1": 36, "BSc_2": 32, "BSc_3": 32, "MSc_1": 36, "MSc_2": 32, "ME_1": 36, "MTech_1": 36, "ME_2": 32, "MTech_2": 32, "MCA_1": 36, "MCA_2": 32 },
     COURSE_CODES: { 'U': 'BE', 'A': 'BE', 'D': 'BE', 'C': 'BE', 'Z': 'BE', 'N': 'BE', 'E': 'BE', 'L': 'BE', 'M': 'BE', 'Y': 'BE', 'P': 'BE', 'R': 'BE', 'B': 'BTech', 'H': 'BTech', 'I': 'BTech', 'T': 'BTech', 'S': 'BSc', 'X': 'BSc', 'AE': 'ME', 'NB': 'ME', 'ZC': 'ME', 'UC': 'ME', 'EE': 'ME', 'MD': 'ME', 'MN': 'ME', 'PP': 'ME', 'ED': 'ME', 'CS': 'ME', 'LV': 'ME', 'BT': 'ME', 'CE': 'MTech', 'EC': 'MTech', 'IT': 'MTech', 'ME': 'MTech', 'MX': 'MCA' }
 };
@@ -32,7 +35,7 @@ function isAbsoluteGradingSystem(roll) { if (!roll || roll.length < 2) return fa
 function getCourseType(roll) { if (!roll || roll.length < 3) return null; const l = roll.substring(2); if (l.length >= 2 && CONFIG.COURSE_CODES[l.substring(0, 2).toUpperCase()]) return CONFIG.COURSE_CODES[l.substring(0, 2).toUpperCase()]; return CONFIG.COURSE_CODES[l.charAt(0).toUpperCase()] || null; }
 function getPlannerId(roll) { return CONFIG.PLANNER_MAP[`${getCourseType(roll)}_${getAcademicYear(roll)}`] || null; }
 
-function bootApp() {
+document.addEventListener('DOMContentLoaded', () => {
     // --- AUTO-LOGIN: Check for stored credentials ---
     const savedCreds = (() => { try { return JSON.parse(localStorage.getItem('bunker_credentials') || 'null'); } catch { return null; } })();
     const savedRoll = savedCreds?.roll;
@@ -69,8 +72,7 @@ function bootApp() {
         // Start background sync
         backgroundSync(savedCreds.roll, savedCreds.password);
     } else {
-        const loginView = document.getElementById('login-view');
-        if (loginView) loginView.classList.remove('hidden');
+        document.getElementById('login-view').classList.remove('hidden');
     }
 
     if (window.pwaManager) updateInstallUI();
@@ -82,18 +84,11 @@ function bootApp() {
         if (splash) {
             splash.style.opacity = '0';
             splash.style.pointerEvents = 'none';
-            setTimeout(() => { if (splash.parentNode) splash.remove(); }, 700);
+            setTimeout(() => splash.remove(), 700);
         }
         if (app) app.style.opacity = '1';
-    }, 600); // 600ms smooth transition
-}
-
-// Execute bootApp regardless of readyState
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bootApp);
-} else {
-    bootApp();
-}
+    }, 1200); // 1.2s delay for the animation to play out
+});
 
 async function backgroundSync(roll, password) {
     showSyncIndicator('syncing');
@@ -250,6 +245,30 @@ function getLoginErrorMessage(rawError, roll) {
     return { title: 'Login Failed', body: rawError };
 }
 
+// Real-time Portal Detection on Username input
+const usernameInput = document.getElementById('username');
+if (usernameInput) {
+    usernameInput.addEventListener('input', (e) => {
+        const val = e.target.value.trim().toUpperCase();
+        const btnText = document.getElementById('btn-text');
+        if (!btnText) return;
+        
+        if (/^\d{10}$/.test(val) || (/^\d{4,10}$/.test(val) && (val.startsWith('202') || val.startsWith('201')))) {
+            btnText.innerText = 'Sign In to CeGov (Anna Univ)';
+        } else if (/^\d{2}[A-Z]/.test(val)) {
+            const letters = val.substring(2);
+            const iasPrefixes = ['IR', 'IB', 'BA', 'BM', 'AS', 'AU', 'US', 'UK', 'DE', 'GE', 'NA'];
+            if (iasPrefixes.some(p => letters.startsWith(p))) {
+                btnText.innerText = 'Sign In to PSG IAS';
+            } else {
+                btnText.innerText = 'Sign In to PSG Tech';
+            }
+        } else {
+            btnText.innerText = 'Sign In to eCampus';
+        }
+    });
+}
+
 document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const roll = document.getElementById('username').value.trim().toUpperCase();
@@ -264,11 +283,11 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         showInlineError('Password is required.');
         return;
     }
-    // PSG Tech: 6-7 chars (e.g. 22CSA01)
-    // PSG IAS : 7 chars   (e.g. 25IR007)
+    // PSG Tech: 6-8 chars (e.g. 22CSA01)
+    // PSG IAS : 6-8 chars (e.g. 25IR007)
     // CEG     : exactly 10 digits (e.g. 2023103001)
     const isCEGFormat = /^\d{10}$/.test(roll);
-    if (!isCEGFormat && roll.length !== 6 && roll.length !== 7) {
+    if (!isCEGFormat && (roll.length < 5 || roll.length > 8)) {
         showInlineError(`"${roll}" isn't a valid roll number. Use 6–7 chars for PSG Tech/IAS (e.g. 22CSA01) or 10 digits for CEG (e.g. 2023103001).`);
         return;
     }

@@ -114,35 +114,7 @@ CONFIG = {
 # ===== END OF EDITABLE SECTION =====
 # ============================================================================
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, '..'))
-
-# Locate template directory (supports local, serverless & container environments)
-TEMPLATES_CANDIDATES = [
-    os.path.join(BASE_DIR, 'templates'),
-    os.path.join(ROOT_DIR, 'templates'),
-    'templates',
-    'api/templates'
-]
-template_dir = os.path.join(BASE_DIR, 'templates')
-for cand in TEMPLATES_CANDIDATES:
-    if os.path.isdir(cand):
-        template_dir = cand
-        break
-
-STATIC_CANDIDATES = [
-    os.path.join(ROOT_DIR, 'static'),
-    os.path.join(BASE_DIR, 'static'),
-    'static',
-    '../static'
-]
-static_dir = os.path.join(ROOT_DIR, 'static')
-for cand in STATIC_CANDIDATES:
-    if os.path.isdir(cand):
-        static_dir = cand
-        break
-
-app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
+app = Flask(__name__, template_folder='templates', static_folder='../static')
 
 session_secret = os.environ.get("SESSION_SECRET")
 if not session_secret:
@@ -179,30 +151,17 @@ def get_course_type(roll_number):
     if not roll_number or len(roll_number) < 3:
         return None
     
-    roll_number = roll_number.strip().upper()
     letters = roll_number[2:]
-    if not letters:
-        return None
     
-    # Check if the roll starts with two letters (e.g. 24MX01, 22CS01, 25IR007)
-    if len(letters) >= 2 and letters[0].isalpha() and letters[1].isalpha():
-        two_letters = letters[:2]
+    # Check two-letter codes first
+    if len(letters) >= 2:
+        two_letters = letters[:2].upper()
         if two_letters in CONFIG['COURSE_CODES']:
             return CONFIG['COURSE_CODES'][two_letters]
-        # Three letters check (e.g. 22CSA01 -> branch C/CS + section A)
-        if len(letters) >= 3 and letters[2].isalpha():
-            first_letter = letters[0]
-            if first_letter in CONFIG['COURSE_CODES']:
-                return CONFIG['COURSE_CODES'][first_letter]
-        # Two letters not in PSG Tech course code (e.g. IR, IB, etc.) -> Not PSG Tech
-        return None
     
-    # Check single letter (e.g. 22I101, 23B102, 21L045)
-    if letters[0].isalpha():
-        first_letter = letters[0]
-        return CONFIG['COURSE_CODES'].get(first_letter)
-    
-    return None
+    # Check single letter
+    first_letter = letters[0].upper()
+    return CONFIG['COURSE_CODES'].get(first_letter)
 
 
 def get_planner_id(roll_number):
@@ -227,26 +186,46 @@ def detect_college(roll_number):
     Rules (applied in order):
       1. Exactly 10 digits  →  'CEG'     (Anna Univ. / CeGov portal: auegov.ac.in)
          e.g. 2023103001
-      2. Contains a known PSG Tech course code letter(s)  →  'PSGTECH'
-         e.g. 22CSA01, 23B102, 24MX01
-      3. Anything else  →  'PSGIAS'
-         e.g. 25IR007
+      2. Contains a known PSG Tech course code  →  'PSGTECH'
+         e.g. 22CSA01, 22CSB15, 22L101, 22U315, 23IT01, 21MX05, 22A101
+      3. Otherwise  →  'PSGIAS'
+         e.g. 25IR007, 24BM001, 23IB012
     """
     if not roll_number:
         return None
     
     roll_number = roll_number.strip().upper()
     
-    # --- Rule 1: CEG (Anna University constituent colleges) ---
+    # --- Rule 1: CEG (Anna University constituent colleges: exactly 10 digits) ---
     import re
     if re.match(r'^\d{10}$', roll_number):
         return 'CEG'
     
-    # --- Rule 2: PSG Tech ---
-    if get_course_type(roll_number) is not None:
-        return 'PSGTECH'
+    # --- Rule 2: Extract letters after the 2-digit entry year (PSG Tech vs PSG IAS) ---
+    match = re.search(r'^\d{2}([A-Z]+)', roll_number)
+    if match:
+        letters = match.group(1)
+        # Specific PSG IAS known prefix codes to prevent false match with single letter fallbacks
+        ias_prefixes = {'IR', 'IB', 'BA', 'BM', 'AS', 'AU', 'US', 'UK', 'DE', 'GE', 'NA'}
+        if any(letters.startswith(ias_p) for ias_p in ias_prefixes):
+            return 'PSGIAS'
+        # Check 2-letter codes first (e.g. 'CS' from 'CSA', 'IT', 'AE', 'MX', etc.)
+        if len(letters) >= 2 and letters[:2] in CONFIG['COURSE_CODES']:
+            return 'PSGTECH'
+        # Check 1-letter codes (e.g. 'U', 'A', 'D', 'C', 'Z', 'N', 'E', 'L', 'M', 'Y', 'P', 'R', 'B', 'H', 'I', 'T', 'S', 'X')
+        if len(letters) >= 1 and letters[0] in CONFIG['COURSE_CODES']:
+            return 'PSGTECH'
+            
+    # Fallback letter check for any non-standard roll structure
+    match_gen = re.search(r'[A-Z]+', roll_number)
+    if match_gen:
+        gen_letters = match_gen.group(0)
+        if len(gen_letters) >= 2 and gen_letters[:2] in CONFIG['COURSE_CODES']:
+            return 'PSGTECH'
+        if len(gen_letters) >= 1 and gen_letters[0] in CONFIG['COURSE_CODES']:
+            return 'PSGTECH'
 
-    # --- Rule 3: PSG IAS (default) ---
+    # --- Rule 3: PSG IAS (default fallback) ---
     return 'PSGIAS'
 
 
@@ -1177,10 +1156,27 @@ def serve_manifest():
 def serve_favicon():
     return app.send_static_file('favicon.ico')
 
+@app.route('/favicon.png')
+def serve_favicon_png():
+    return app.send_static_file('favicon.png')
+
+@app.route('/icon.png')
+def serve_icon_png():
+    return app.send_static_file('icon.png')
+
+@app.route('/icon-192.png')
+def serve_icon_192():
+    return app.send_static_file('icon-192.png')
+
+@app.route('/icon-512.png')
+def serve_icon_512():
+    return app.send_static_file('icon-512.png')
+
 @app.route('/sw.js')
 def serve_sw():
     response = app.send_static_file('sw.js')
     response.headers['Service-Worker-Allowed'] = '/'
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     return response
 
 @app.route('/robots.txt')
@@ -1195,25 +1191,19 @@ def serve_sitemap():
 def serve_llms():
     return app.send_static_file('llms.txt')
 
+@app.route('/version.json')
+def serve_version():
+    return jsonify({
+        "version": 2,
+        "downloadUrl": "https://github.com/akka9655/bunkakka/blob/main/static/bunker.apk",
+        "releaseNotes": "added new feature"
+    })
+
 @app.route('/')
-@app.route('/api/index.py')
-@app.route('/api/index')
-@app.route('/api')
-@app.route('/api/')
-@app.route('/index')
 @app.route('/index.html')
+@app.route('/api/index.py')
 def index():
     """Serve main application"""
-    return render_template('index.html')
-
-@app.errorhandler(404)
-def handle_404(e):
-    """Handle 404 errors by serving SPA index or JSON for API calls"""
-    # For actual non-existent API routes, return 404 JSON
-    known_api_routes = ['/api/index.py', '/api/index', '/api', '/api/']
-    if request.path.startswith('/api/') and request.path not in known_api_routes:
-        return jsonify({'error': 'API endpoint not found', 'path': request.path}), 404
-    # For all other routes, serve index.html (SPA Fallback)
     return render_template('index.html')
 
 

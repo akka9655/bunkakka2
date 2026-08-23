@@ -1,8 +1,8 @@
 {
     "id": "/",
-    "name": "BUNKER - PSG & CEG Attendance",
+    "name": "Bunker - PSG & CEG Attendance Tracker",
     "short_name": "Bunker",
-    "description": "PSG Bunker is the ultimate attendance tracker and bunk planner for PSG Tech students. Sync with E-Campus instantly and maintain 75% attendance.",
+    "description": "Bunker is the ultimate attendance tracker and bunk planner for PSG Tech, PSG IAS, and CEG (Anna University) students. Sync with portal instantly and calculate safe bunks.",
     "display": "standalone",
     "display_override": ["standalone", "minimal-ui"],
     "background_color": "#030206",

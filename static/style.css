@@ -91,42 +91,24 @@ html[data-perf="low"] :root {
     -webkit-tap-highlight-color: transparent;
 }
 
-button, input, select, textarea {
+button, input, optgroup, select, textarea {
     font-family: inherit;
-    font-size: inherit;
-    line-height: inherit;
-    color: inherit;
+    font-size: 100%;
+    line-height: 1.15;
     margin: 0;
 }
 
+button, select {
+    text-transform: none;
+}
+
 button, [type="button"], [type="reset"], [type="submit"] {
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    appearance: none;
-    background: transparent;
+    -webkit-appearance: button;
+    appearance: button;
+    background-color: transparent;
+    background-image: none;
     border: none;
-    outline: none;
     cursor: pointer;
-    user-select: none;
-    -webkit-user-select: none;
-    touch-action: manipulation;
-}
-
-.hidden {
-    display: none !important;
-}
-
-.sr-only {
-    position: absolute !important;
-    width: 1px !important;
-    height: 1px !important;
-    padding: 0 !important;
-    margin: -1px !important;
-    overflow: hidden !important;
-    clip: rect(0, 0, 0, 0) !important;
-    white-space: nowrap !important;
-    border: 0 !important;
-    display: none !important;
 }
 
 html {
