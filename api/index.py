@@ -1192,8 +1192,24 @@ def serve_llms():
     return app.send_static_file('llms.txt')
 
 @app.route('/')
+@app.route('/api/index.py')
+@app.route('/api/index')
+@app.route('/api')
+@app.route('/api/')
+@app.route('/index')
+@app.route('/index.html')
 def index():
     """Serve main application"""
+    return render_template('index.html')
+
+@app.errorhandler(404)
+def handle_404(e):
+    """Handle 404 errors by serving SPA index or JSON for API calls"""
+    # For actual non-existent API routes, return 404 JSON
+    known_api_routes = ['/api/index.py', '/api/index', '/api', '/api/']
+    if request.path.startswith('/api/') and request.path not in known_api_routes:
+        return jsonify({'error': 'API endpoint not found', 'path': request.path}), 404
+    # For all other routes, serve index.html (SPA Fallback)
     return render_template('index.html')
 
 
