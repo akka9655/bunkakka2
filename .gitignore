@@ -1,2 +1,6 @@
 github token.md
 m.md
+n.md
+__pycache__/
+*.pyc
+.DS_Store
