@@ -179,17 +179,30 @@ def get_course_type(roll_number):
     if not roll_number or len(roll_number) < 3:
         return None
     
+    roll_number = roll_number.strip().upper()
     letters = roll_number[2:]
+    if not letters:
+        return None
     
-    # Check two-letter codes first
-    if len(letters) >= 2:
-        two_letters = letters[:2].upper()
+    # Check if the roll starts with two letters (e.g. 24MX01, 22CS01, 25IR007)
+    if len(letters) >= 2 and letters[0].isalpha() and letters[1].isalpha():
+        two_letters = letters[:2]
         if two_letters in CONFIG['COURSE_CODES']:
             return CONFIG['COURSE_CODES'][two_letters]
+        # Three letters check (e.g. 22CSA01 -> branch C/CS + section A)
+        if len(letters) >= 3 and letters[2].isalpha():
+            first_letter = letters[0]
+            if first_letter in CONFIG['COURSE_CODES']:
+                return CONFIG['COURSE_CODES'][first_letter]
+        # Two letters not in PSG Tech course code (e.g. IR, IB, etc.) -> Not PSG Tech
+        return None
     
-    # Check single letter
-    first_letter = letters[0].upper()
-    return CONFIG['COURSE_CODES'].get(first_letter)
+    # Check single letter (e.g. 22I101, 23B102, 21L045)
+    if letters[0].isalpha():
+        first_letter = letters[0]
+        return CONFIG['COURSE_CODES'].get(first_letter)
+    
+    return None
 
 
 def get_planner_id(roll_number):
@@ -215,7 +228,7 @@ def detect_college(roll_number):
       1. Exactly 10 digits  →  'CEG'     (Anna Univ. / CeGov portal: auegov.ac.in)
          e.g. 2023103001
       2. Contains a known PSG Tech course code letter(s)  →  'PSGTECH'
-         e.g. 22CSA01  (C = BE course code)
+         e.g. 22CSA01, 23B102, 24MX01
       3. Anything else  →  'PSGIAS'
          e.g. 25IR007
     """
@@ -225,24 +238,15 @@ def detect_college(roll_number):
     roll_number = roll_number.strip().upper()
     
     # --- Rule 1: CEG (Anna University constituent colleges) ---
-    # CEG roll numbers are exactly 10 numeric digits, e.g. 2023103001
-    # They are purely numeric, so we check before looking for letters.
     import re
     if re.match(r'^\d{10}$', roll_number):
         return 'CEG'
     
     # --- Rule 2: PSG Tech ---
-    # PSG Tech roll numbers contain uppercase letters (course code) after the year.
-    # e.g. 22CSA01 → letters 'C' or 'CS' map to a known course type.
-    match = re.search(r'[A-Z]+', roll_number)
-    if match:
-        course_code = match.group(0)
-        if course_code in CONFIG['COURSE_CODES']:
-            return 'PSGTECH'
+    if get_course_type(roll_number) is not None:
+        return 'PSGTECH'
 
     # --- Rule 3: PSG IAS (default) ---
-    # Roll numbers with letters not in PSG Tech's course code list (e.g. 25IR007)
-    # or other unrecognised formats fall through to PSG IAS.
     return 'PSGIAS'
 
 

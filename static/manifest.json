@@ -1,7 +1,7 @@
 {
     "id": "/",
-    "name": "PSG Bunker - Smart Attendance",
-    "short_name": "PSG Bunker",
+    "name": "BUNKER - PSG & CEG Attendance",
+    "short_name": "Bunker",
     "description": "PSG Bunker is the ultimate attendance tracker and bunk planner for PSG Tech students. Sync with E-Campus instantly and maintain 75% attendance.",
     "display": "standalone",
     "display_override": ["standalone", "minimal-ui"],
