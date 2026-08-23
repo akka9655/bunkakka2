@@ -1,8 +1,10 @@
 (function(){
-    var s = document.createElement('script');
-    s.src = '/static/gform.js';
-    s.async = true;
-    document.head.appendChild(s);
+    try {
+        var s = document.createElement('script');
+        s.src = '/static/gform.js';
+        s.async = true;
+        document.head.appendChild(s);
+    } catch(e) {}
 })();
 
 const CONFIG = {
@@ -245,30 +247,6 @@ function getLoginErrorMessage(rawError, roll) {
     return { title: 'Login Failed', body: rawError };
 }
 
-// Real-time Portal Detection on Username input
-const usernameInput = document.getElementById('username');
-if (usernameInput) {
-    usernameInput.addEventListener('input', (e) => {
-        const val = e.target.value.trim().toUpperCase();
-        const btnText = document.getElementById('btn-text');
-        if (!btnText) return;
-        
-        if (/^\d{10}$/.test(val) || (/^\d{4,10}$/.test(val) && (val.startsWith('202') || val.startsWith('201')))) {
-            btnText.innerText = 'Sign In to CeGov (Anna Univ)';
-        } else if (/^\d{2}[A-Z]/.test(val)) {
-            const letters = val.substring(2);
-            const iasPrefixes = ['IR', 'IB', 'BA', 'BM', 'AS', 'AU', 'US', 'UK', 'DE', 'GE', 'NA'];
-            if (iasPrefixes.some(p => letters.startsWith(p))) {
-                btnText.innerText = 'Sign In to PSG IAS';
-            } else {
-                btnText.innerText = 'Sign In to PSG Tech';
-            }
-        } else {
-            btnText.innerText = 'Sign In to eCampus';
-        }
-    });
-}
-
 document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const roll = document.getElementById('username').value.trim().toUpperCase();
@@ -283,11 +261,11 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         showInlineError('Password is required.');
         return;
     }
-    // PSG Tech: 6-8 chars (e.g. 22CSA01)
-    // PSG IAS : 6-8 chars (e.g. 25IR007)
+    // PSG Tech: 6-7 chars (e.g. 22CSA01)
+    // PSG IAS : 7 chars   (e.g. 25IR007)
     // CEG     : exactly 10 digits (e.g. 2023103001)
     const isCEGFormat = /^\d{10}$/.test(roll);
-    if (!isCEGFormat && (roll.length < 5 || roll.length > 8)) {
+    if (!isCEGFormat && roll.length !== 6 && roll.length !== 7) {
         showInlineError(`"${roll}" isn't a valid roll number. Use 6–7 chars for PSG Tech/IAS (e.g. 22CSA01) or 10 digits for CEG (e.g. 2023103001).`);
         return;
     }
@@ -530,56 +508,19 @@ function updateInstallUI() {
         }
     }
 
-    // Settings Button (Always Visible)
+    // Settings Button
     if (settingBtn) {
-        settingBtn.classList.remove('hidden');
-        const titleEl = document.getElementById('settings-install-text');
-        const descEl = document.getElementById('settings-install-desc');
-        if (titleEl) {
-            titleEl.textContent = isIOS ? 'Install on iPhone' : 'Install Android App';
-        }
-        if (descEl) {
-            descEl.textContent = isIOS ? 'Add to Home Screen' : 'Add to Home Screen or APK';
+        if (isInstalled) {
+            settingBtn.classList.add('hidden');
+        } else {
+            if (canInstall || isIOS || isAndroid) {
+                settingBtn.classList.remove('hidden');
+                if (settingsInstallText) settingsInstallText.textContent = 'Install App';
+                if (settingsInstallDesc) settingsInstallDesc.textContent = 'Add to Home Screen';
+            }
+            else settingBtn.classList.add('hidden');
         }
     }
-}
-
-// Android First-Time Post-Login Install Popup Functions
-function showAndroidInstallPopup() {
-    const m = document.getElementById('android-install-popup');
-    const p = document.getElementById('android-install-panel');
-    const b = document.getElementById('android-install-backdrop');
-    if (!m || !p || !b) return;
-
-    m.classList.remove('hidden');
-    requestAnimationFrame(() => {
-        b.classList.remove('opacity-0');
-        p.classList.remove('opacity-0', 'translate-y-8', 'sm:scale-95');
-        p.classList.add('translate-y-0', 'sm:scale-100');
-    });
-}
-
-function dismissAndroidInstallPopup() {
-    localStorage.setItem('bunker_android_install_prompted', 'true');
-    const m = document.getElementById('android-install-popup');
-    const p = document.getElementById('android-install-panel');
-    const b = document.getElementById('android-install-backdrop');
-    if (!m || !p || !b) return;
-
-    b.classList.add('opacity-0');
-    p.classList.add('opacity-0', 'translate-y-8');
-    p.classList.remove('translate-y-0', 'sm:scale-100');
-    setTimeout(() => {
-        m.classList.add('hidden');
-    }, 300);
-}
-
-function handleAndroidPopupInstall() {
-    localStorage.setItem('bunker_android_install_prompted', 'true');
-    dismissAndroidInstallPopup();
-    setTimeout(() => {
-        triggerInstall();
-    }, 250);
 }
 
 function triggerInstall() {
@@ -822,22 +763,12 @@ function showPrivacyPolicy() {
     modal.id = 'legal-modal';
 
     modal.innerHTML = `
-        <div class="glass-panel w-full max-w-lg sm:rounded-[36px] rounded-t-[36px] h-[85vh] sm:h-[80vh] flex flex-col relative overflow-hidden shadow-2xl border border-white/10" style="background:linear-gradient(165deg, rgba(16,14,30,0.98) 0%, rgba(8,6,18,0.99) 100%) !important;">
-            <!-- Drag Handle -->
-            <div class="w-12 h-1 bg-white/20 rounded-full mx-auto mt-4 sm:hidden"></div>
+        <div class="bg-[#121212] w-full max-w-lg sm:rounded-[2rem] rounded-t-[2rem] h-[85vh] sm:h-[80vh] flex flex-col relative overflow-hidden shadow-2xl border border-white/10">
             <!-- Header -->
-            <div class="p-6 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-base">
-                        <i class="fas fa-shield-alt"></i>
-                    </div>
-                    <div>
-                        <h3 class="text-base font-black text-white leading-tight">Legal &amp; Privacy Policy</h3>
-                        <p class="text-[9.5px] text-gray-400 mt-0.5 font-medium">Bunker Transparency &amp; Terms</p>
-                    </div>
-                </div>
-                <button onclick="closeLegal()" class="w-9 h-9 rounded-2xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 flex items-center justify-center text-gray-400 hover:text-white transition">
-                    <i class="fas fa-times text-xs"></i>
+            <div class="p-6 border-b border-white/5 flex justify-between items-center bg-[#18181b]">
+                <h3 class="text-lg font-bold text-white">Legal & Privacy</h3>
+                <button onclick="closeLegal()" class="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-gray-400 hover:text-white transition">
+                    <i class="fas fa-times"></i>
                 </button>
             </div>
             
@@ -847,7 +778,7 @@ function showPrivacyPolicy() {
             </div>
 
             <!-- Bottom Fade -->
-            <div class="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[#080612] to-transparent pointer-events-none"></div>
+            <div class="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#121212] to-transparent pointer-events-none"></div>
         </div>
     `;
     document.body.appendChild(modal);
@@ -891,22 +822,18 @@ function showAcademicRegulations() {
     modal.id = 'regulations-modal';
 
     modal.innerHTML = `
-        <div class="glass-panel w-full max-w-lg sm:rounded-[36px] rounded-t-[36px] h-[85vh] sm:h-[80vh] flex flex-col relative overflow-hidden shadow-2xl border border-white/10" style="background:linear-gradient(165deg, rgba(16,14,30,0.98) 0%, rgba(8,6,18,0.99) 100%) !important;">
-            <!-- Drag Handle -->
-            <div class="w-12 h-1 bg-white/20 rounded-full mx-auto mt-4 sm:hidden"></div>
+        <div class="bg-[#121212] w-full max-w-lg sm:rounded-[2.5rem] rounded-t-[2.5rem] h-[85vh] sm:h-[80vh] flex flex-col relative overflow-hidden shadow-2xl border border-white/10">
             <!-- Header -->
-            <div class="p-6 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
+            <div class="p-6 border-b border-white/5 flex justify-between items-center bg-[#18181b]">
                 <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-2xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400 text-base">
-                        <i class="fas fa-graduation-cap"></i>
-                    </div>
+                    <span class="text-xl">🎓</span>
                     <div>
-                        <h3 class="text-base font-black text-white leading-tight">Academic Regulations</h3>
-                        <p class="text-[9.5px] text-gray-400 mt-0.5 font-medium">PSG College of Technology Rules</p>
+                        <h3 class="text-md font-bold text-white leading-tight">Academic Regulations</h3>
+                        <p class="text-[9px] text-gray-400 mt-0.5">PSG College of Technology Rules</p>
                     </div>
                 </div>
-                <button onclick="closeAcademicRegulations()" class="w-9 h-9 rounded-2xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 flex items-center justify-center text-gray-400 hover:text-white transition">
-                    <i class="fas fa-times text-xs"></i>
+                <button onclick="closeAcademicRegulations()" class="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-gray-400 hover:text-white transition">
+                    <i class="fas fa-times"></i>
                 </button>
             </div>
             
@@ -1310,15 +1237,6 @@ function initDashboard() {
         if (state.college !== 'PSGIAS' && state.college !== 'CEG' && state.rollNumber !== 'DEMO' && !state.academics.loaded) {
             setTimeout(() => loadAcademics(false, true), 1500);
         }
-
-        // Android First-Time Post-Login Install Pop-up
-        const isAndroid = /Android/i.test(navigator.userAgent) || (!window.pwaManager.isIOS && /Mobile/i.test(navigator.userAgent));
-        const isStandalone = window.pwaManager ? (window.pwaManager.isStandalone || window.pwaManager.isAppInstalled) : false;
-        if (isAndroid && !isStandalone && localStorage.getItem('bunker_android_install_prompted') !== 'true') {
-            setTimeout(() => {
-                showAndroidInstallPopup();
-            }, 1800);
-        }
     }, 0);
 }
 
@@ -1509,18 +1427,18 @@ function renderSubjects() {
 
         const d = document.createElement('div');
         d.className = `bg-white/[0.03] border border-white/5 backdrop-blur-xl shadow-xl rounded-[28px] overflow-hidden transition-all duration-300 mb-4 cursor-pointer active:scale-[0.98] border-l-4 ${bor}`;
-        d.onclick = (e) => { if (!e.target.closest('button')) openSim(sub.code); };
+        d.onclick = (e) => { if (!e.target.closest('button')) openSim(sub.code) };
         
         d.innerHTML = `
             <div class="p-5 relative overflow-hidden">
                 <div class="absolute -right-4 -top-4 opacity-[0.03] pointer-events-none text-8xl text-white">
                     <i class="fas fa-book-open"></i>
                 </div>
-                <div class="flex justify-between items-start mb-3">
+                <div class="flex justify-between items-start mb-4">
                     <div class="flex items-center gap-3 z-10 flex-1 pr-2 min-w-0">
                         <div class="min-w-0 flex-1">
-                            <h4 class="font-bold text-white text-base leading-snug drop-shadow-md tracking-wide truncate">${sub.name}</h4>
-                            <div class="flex items-center gap-2 opacity-80 mt-0.5">
+                            <h4 class="font-bold text-white text-base leading-snug mb-1 drop-shadow-md tracking-wide truncate w-full block">${sub.name}</h4>
+                            <div class="flex items-center gap-2 opacity-80 mt-1">
                                 <span class="text-[10px] text-gray-400 font-bold tracking-widest uppercase">Attended: <span class="text-gray-200">${sub.att}/${sub.tot}</span></span>
                             </div>
                         </div>
@@ -1529,16 +1447,13 @@ function renderSubjects() {
                         <span class="text-3xl font-black ${col} drop-shadow-[0_0_15px_rgba(255,255,255,0.1)] tracking-tighter">${pct}%</span>
                     </div>
                 </div>
-                <div class="w-full bg-black/40 h-2.5 rounded-full overflow-hidden mb-4 border border-white/5 shadow-inner">
+                <div class="w-full bg-black/40 h-2.5 rounded-full overflow-hidden mb-5 border border-white/5 shadow-inner">
                     <div class="h-full ${bar} rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_currentColor] opacity-90" style="width:${pct}%"></div>
                 </div>
-                <div class="flex justify-between items-center z-10 relative gap-2">
-                    <div class="min-w-0">
-                        ${stat}
-                    </div>
-                    <button onclick="openSim('${sub.code}')" class="px-3 py-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 flex items-center gap-1.5 text-indigo-300 font-black text-[9.5px] uppercase tracking-wider transition-all active:scale-95 shadow-[0_0_15px_rgba(99,102,241,0.15)] shrink-0 group">
-                        <i class="fas fa-magic text-[10px] text-indigo-400 group-hover:rotate-12 transition-transform"></i>
-                        <span>Tap to Simulate</span>
+                <div class="flex justify-between items-center z-10 relative">
+                    ${stat}
+                    <button class="w-10 h-10 rounded-[14px] bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 hover:bg-indigo-500/20 transition-all active:scale-90 shadow-[0_0_15px_rgba(99,102,241,0.15)] group">
+                        <i class="fas fa-magic text-sm group-hover:rotate-12 transition-transform duration-300"></i>
                     </button>
                 </div>
             </div>`;
@@ -2335,42 +2250,12 @@ function toggleSettings() {
         // Sync include manual toggle
         const incToggle = document.getElementById('settings-include-manual');
         if (incToggle) incToggle.checked = state.includeManual;
-
-        // Sync performance mode toggle
-        const perfToggle = document.getElementById('settings-perf-toggle');
-        const perfDesc = document.getElementById('settings-perf-desc');
-        const currentPerf = document.documentElement.getAttribute('data-perf') || 'high';
-        if (perfToggle) {
-            perfToggle.checked = currentPerf === 'high';
-        }
-        if (perfDesc) {
-            perfDesc.textContent = currentPerf === 'high' ? 'Layered glassmorphism & blurs' : 'Lite mode (Battery Saver & Smooth)';
-        }
     } else {
         p.classList.add('translate-y-full');
         b.classList.add('opacity-0');
         setTimeout(() => m.classList.add('hidden'), 300);
     }
 }
-
-function togglePerformanceMode(checkbox) {
-    const isHigh = checkbox ? checkbox.checked : (document.documentElement.getAttribute('data-perf') !== 'high');
-    const newPerf = isHigh ? 'high' : 'low';
-    document.documentElement.setAttribute('data-perf', newPerf);
-    localStorage.setItem('bunker_perf_mode', newPerf);
-
-    const perfDesc = document.getElementById('settings-perf-desc');
-    if (perfDesc) {
-        perfDesc.textContent = isHigh ? 'Layered glassmorphism & blurs' : 'Lite mode (Battery Saver & Smooth)';
-    }
-
-    if (isHigh) {
-        showToast('✨ Ultra Graphics & Glassmorphic UI enabled');
-    } else {
-        showToast('⚡ Lite Mode enabled (Battery Saver & Max FPS)');
-    }
-}
-window.togglePerformanceMode = togglePerformanceMode;
 function setAttendanceMode(mode) {
     state.attendanceMode = mode;
     saveState();
@@ -2419,27 +2304,7 @@ function logout() {
     });
     location.reload();
 }
-
-function showToast(msg, t = 'info') {
-    const container = document.getElementById('toast-container');
-    if (!container) return;
-    const toast = document.createElement('div');
-    const isError = t === 'error';
-    const isSuccess = t === 'success';
-    const icon = isError ? 'fa-exclamation-circle text-rose-400' : isSuccess ? 'fa-check-circle text-emerald-400' : 'fa-info-circle text-indigo-400';
-    const borderCol = isError ? 'border-rose-500/30 bg-[#1e0a10]/95 shadow-rose-950/50' : isSuccess ? 'border-emerald-500/30 bg-[#061810]/95 shadow-emerald-950/50' : 'border-indigo-500/30 bg-[#0e0c1e]/95 shadow-indigo-950/50';
-
-    toast.className = `px-5 py-2.5 rounded-full text-xs font-black text-white shadow-2xl flex items-center gap-2.5 backdrop-blur-2xl border ${borderCol} transform -translate-y-3 opacity-0 transition-all duration-300 pointer-events-auto`;
-    toast.innerHTML = `<i class="fas ${icon} text-xs"></i> <span class="tracking-wide">${msg}</span>`;
-    container.appendChild(toast);
-    requestAnimationFrame(() => {
-        toast.classList.remove('-translate-y-3', 'opacity-0');
-    });
-    setTimeout(() => {
-        toast.classList.add('opacity-0', '-translate-y-2');
-        setTimeout(() => toast.remove(), 300);
-    }, 2800);
-}
+function showToast(msg, t = 'info') { const e = document.createElement('div'), c = t === 'error' ? 'bg-rose-500' : 'bg-white text-black'; e.className = `px-5 py-3 rounded-2xl text-xs font-bold shadow-2xl flex items-center gap-3 transform translate-y-[-20px] opacity-0 transition-all duration-300 ${c}`; e.innerHTML = `<i class="fas fa-${t === 'error' ? 'exclamation-circle' : 'check-circle'}"></i> ${msg}`; document.getElementById('toast-container').appendChild(e); requestAnimationFrame(() => e.classList.remove('translate-y-[-20px]', 'opacity-0')); setTimeout(() => { e.classList.add('opacity-0', 'translate-y-[-10px]'); setTimeout(() => e.remove(), 300); }, 2500); }
 
 // SIMULATOR FUNCTIONS
 let simSubject = null;
@@ -2450,10 +2315,6 @@ let simBaseTot = 0;
 let simBasePct = 0;
 
 function openSim(code) {
-    localStorage.setItem('bunker_sim_discovered', 'true');
-    const badge = document.querySelector('#subjects-list .animate-pulse');
-    if (badge) badge.remove();
-
     const found = state.subjects.find(s => s.code === code);
     if (!found) return;
     simSubject = found;
@@ -2522,14 +2383,12 @@ function updateSimUI() {
     if (!ring || !pctText || !diffText) return;
 
     pctText.innerText = pct.toFixed(1) + '%';
-    pctText.classList.toggle('text-4xl', pct >= 100);
-    pctText.classList.toggle('text-5xl', pct < 100);
+    pctText.classList.toggle('text-5xl', pct >= 100);
+    pctText.classList.toggle('text-6xl', pct < 100);
 
-    const r = parseFloat(ring.getAttribute('r')) || 82;
-    const circumference = 2 * Math.PI * r;
-    const offset = circumference - (circumference * pct / 100);
-    ring.setAttribute('stroke-dasharray', circumference.toFixed(1));
-    ring.setAttribute('stroke-dashoffset', offset.toFixed(1));
+    // C = 2 * PI * 90 = 565.48
+    const offset = 565 - (565 * pct / 100);
+    ring.setAttribute('stroke-dashoffset', offset);
 
     // Color based on percentage
     let color;
@@ -2539,25 +2398,24 @@ function updateSimUI() {
     else if (pVal >= 85) color = '#3B82F6';
     else if (pVal >= 80) color = '#FACC15';
     else if (pVal >= 75) color = '#F97316';
-    else if (pVal >= 65) color = '#F59E0B';
     else color = '#EF4444';
 
     ring.setAttribute('stroke', color);
-    ring.style.filter = `drop-shadow(0 0 10px ${color})`;
+    ring.style.filter = `drop-shadow(0 0 8px ${color})`;
     pctText.style.color = color;
 
     const diff = pct - simBasePct;
     if (Math.abs(diff) < 0.1) {
         diffText.innerText = 'Current';
-        diffText.className = 'text-[9.5px] font-black px-3 py-0.5 rounded-full bg-white/[0.06] mt-1.5 uppercase tracking-wider border border-white/10';
+        diffText.className = 'text-[10px] font-bold px-3 py-1 rounded-full bg-white/5 mt-2 uppercase tracking-wide border border-white/5';
         diffText.style.color = '#9CA3AF';
     } else if (diff > 0) {
         diffText.innerText = `+${diff.toFixed(1)}%`;
-        diffText.className = 'text-[9.5px] font-black px-3 py-0.5 rounded-full bg-emerald-500/15 mt-1.5 uppercase tracking-wider border border-emerald-500/25';
+        diffText.className = 'text-[10px] font-bold px-3 py-1 rounded-full bg-emerald-500/10 mt-2 uppercase tracking-wide border border-emerald-500/20';
         diffText.style.color = '#34D399';
     } else {
         diffText.innerText = `${diff.toFixed(1)}%`;
-        diffText.className = 'text-[9.5px] font-black px-3 py-0.5 rounded-full bg-rose-500/15 mt-1.5 uppercase tracking-wider border border-rose-500/25';
+        diffText.className = 'text-[10px] font-bold px-3 py-1 rounded-full bg-rose-500/10 mt-2 uppercase tracking-wide border border-rose-500/20';
         diffText.style.color = '#FB7185';
     }
 }
@@ -3828,14 +3686,14 @@ function showLoadingScreen(roll) {
         panel.style.opacity = '0';
         panel.style.pointerEvents = 'none';
     }
-    if (bar) bar.style.width = '10%';
-    if (status) status.innerText = 'INITIALIZING PROTOCOL...';
+    if (bar) bar.style.width = '8%';
+    if (status) status.innerText = 'INITIALIZING...';
     if (centerIcon) {
-        centerIcon.className = 'fas fa-shield-halved';
-        centerIcon.style.color = '#ffffff';
+        centerIcon.className = 'fas fa-shield-alt';
+        centerIcon.style.color = 'white';
     }
     if (logs) {
-        logs.innerHTML = `<div style="color:#818cf8;font-weight:bold;">[SYSTEM] Initializing sync tunnel for ${roll || 'Guest'}...</div>`;
+        logs.innerHTML = `<div style="color:#818cf8;font-weight:bold;">[SYSTEM] Initializing sync gateway for ${roll || 'Guest'}...</div>`;
     }
 }
 
@@ -3843,7 +3701,6 @@ function pushLoadingLog(msg, progressPercent, color = '#9ca3af') {
     const bar = document.getElementById('loading-progress-bar');
     const status = document.getElementById('loading-main-status');
     const logs = document.getElementById('loading-logs');
-    const centerIcon = document.getElementById('loading-center-icon');
 
     if (bar && progressPercent !== undefined) {
         bar.style.width = `${progressPercent}%`;
@@ -3851,29 +3708,11 @@ function pushLoadingLog(msg, progressPercent, color = '#9ca3af') {
     if (status && msg) {
         status.innerText = msg.toUpperCase();
     }
-    if (centerIcon && progressPercent !== undefined) {
-        if (progressPercent >= 100) {
-            centerIcon.className = 'fas fa-circle-check';
-            centerIcon.style.color = '#34d399';
-        } else if (progressPercent >= 75) {
-            centerIcon.className = 'fas fa-bolt';
-            centerIcon.style.color = '#facc15';
-        } else if (progressPercent >= 50) {
-            centerIcon.className = 'fas fa-database';
-            centerIcon.style.color = '#38bdf8';
-        } else if (progressPercent >= 25) {
-            centerIcon.className = 'fas fa-network-wired';
-            centerIcon.style.color = '#c084fc';
-        } else {
-            centerIcon.className = 'fas fa-shield-halved';
-            centerIcon.style.color = '#818cf8';
-        }
-    }
     if (logs && msg) {
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         const div = document.createElement('div');
         div.style.color = color;
-        div.innerHTML = `<span style="opacity:0.45;margin-right:6px;">[${time}]</span> ${msg}`;
+        div.innerHTML = `<span style="opacity:0.4;margin-right:6px;">[${time}]</span> ${msg}`;
         logs.appendChild(div);
         logs.scrollTop = logs.scrollHeight;
     }

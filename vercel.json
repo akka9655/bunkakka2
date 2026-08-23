@@ -1,60 +1,65 @@
 {
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "api/index.py"
+      "source": "/static/(.*)",
+      "destination": "/static/$1"
     },
     {
       "source": "/favicon.ico",
-      "destination": "static/favicon.ico"
+      "destination": "/static/favicon.ico"
     },
     {
       "source": "/favicon.png",
-      "destination": "static/favicon.png"
+      "destination": "/static/favicon.png"
     },
     {
       "source": "/icon.png",
-      "destination": "static/icon.png"
+      "destination": "/static/icon.png"
     },
     {
       "source": "/icon-192.png",
-      "destination": "static/icon-192.png"
+      "destination": "/static/icon-192.png"
     },
     {
       "source": "/icon-512.png",
-      "destination": "static/icon-512.png"
+      "destination": "/static/icon-512.png"
     },
     {
       "source": "/manifest.json",
-      "destination": "static/manifest.json"
+      "destination": "/static/manifest.json"
     },
     {
       "source": "/sw.js",
-      "destination": "static/sw.js"
+      "destination": "/static/sw.js"
     },
     {
       "source": "/robots.txt",
-      "destination": "static/robots.txt"
+      "destination": "/static/robots.txt"
     },
     {
       "source": "/sitemap.xml",
-      "destination": "static/sitemap.xml"
+      "destination": "/static/sitemap.xml"
     },
     {
       "source": "/llms.txt",
-      "destination": "static/llms.txt"
+      "destination": "/static/llms.txt"
     },
     {
       "source": "/version.json",
-      "destination": "version.json"
+      "destination": "/version.json"
     },
     {
-      "source": "/static/(.*)",
-      "destination": "static/$1"
+      "source": "/api/(.*)",
+      "destination": "/api/index.py"
     },
     {
       "source": "/(.*)",
-      "destination": "api/index.py"
+      "destination": "/api/index.py"
     }
   ],
   "headers": [

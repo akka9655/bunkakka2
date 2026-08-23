@@ -479,6 +479,78 @@ class EcampusScraper:
             logger.error(f"Student name fetch error: {str(e)}")
             return "Student"
 
+    def get_all_data(self):
+        """Fetch attendance, course mapping, weekly schedule, and student name in minimum requests"""
+        if not self.authenticated:
+            return None, None, {}, {day: [] for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']}, "Student", "Authentication failed"
+            
+        attendance_data, last_update, att_msg = self.get_attendance()
+        
+        course_mapping = {}
+        schedule = {day: [] for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']}
+        student_name = "Student"
+        
+        try:
+            import re
+            timetable_url = f"{self.ECAMPUS_URL}AttWfStudTimtab.aspx"
+            response = self.session.get(timetable_url, timeout=15)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # 1. Course mapping
+            table_desc = soup.find('table', {'id': 'TbCourDesc'})
+            if table_desc:
+                for row in table_desc.find_all('tr')[1:]:
+                    cols = [col.text.strip() for col in row.find_all('td')]
+                    if len(cols) >= 2:
+                        course_mapping[cols[0]] = cols[1]
+                        
+            # 2. Weekly schedule
+            days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+            table_tt = soup.find('table', {'id': 'DtStfTimtab'})
+            if table_tt:
+                rows = table_tt.find_all('tr')
+                start_idx = 0
+                for i, row in enumerate(rows):
+                    row_text = row.get_text(strip=True).lower()
+                    if 'mon' in row_text or i > 1:
+                        start_idx = i
+                        break
+                
+                for day_idx, day in enumerate(days):
+                    row_idx = start_idx + day_idx
+                    if row_idx < len(rows):
+                        row = rows[row_idx]
+                        cols = row.find_all('td')
+                        for col in cols[1:]:
+                            content = col.get_text(strip=True)
+                            if content and content.lower() != 'free':
+                                matched_code = None
+                                for course_code in course_mapping.keys():
+                                    if course_code.lower() in content.lower():
+                                        matched_code = course_code
+                                        break
+                                if matched_code:
+                                    schedule[day].append(matched_code)
+                                else:
+                                    codes = re.findall(r'[A-Z0-9]+', content.upper())
+                                    if codes:
+                                        course_code = next((c for c in codes if len(c) >= 5 and any(ch.isdigit() for ch in c)), codes[0] if codes else 'Unknown')
+                                        schedule[day].append(course_code)
+                                    else:
+                                        schedule[day].append('Free')
+                            else:
+                                schedule[day].append('Free')
+                                
+            # 3. Student name
+            name_element = soup.find('span', {'id': 'lbluser'})
+            if name_element and name_element.text.strip():
+                student_name = name_element.text.strip()
+                
+        except Exception as e:
+            logger.error(f"Timetable page parse error: {str(e)}")
+            
+        return attendance_data, last_update, course_mapping, schedule, student_name, "Success"
+
 
 class EcampusIASScraper:
     """
@@ -766,6 +838,22 @@ class EcampusIASScraper:
             logger.error(f"PSG IAS Student name fetch error: {str(e)}")
             return "Student"
 
+    def get_all_data(self):
+        """Fetch attendance, course mapping, weekly schedule, and student name for PSG IAS"""
+        if not self.authenticated:
+            return None, None, {}, {day: [] for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']}, "Student", "Authentication failed"
+            
+        attendance_data, last_update, att_msg = self.get_attendance()
+        course_mapping = {}
+        if attendance_data:
+            for s in attendance_data:
+                course_mapping[s['code']] = s['name']
+                
+        schedule, _ = self.get_weekly_schedule()
+        student_name = self.get_student_name()
+        
+        return attendance_data, last_update, course_mapping, schedule, student_name, "Success"
+
 
 
 class EcampusCEGScraper:
@@ -777,21 +865,14 @@ class EcampusCEGScraper:
     Roll No  : Exactly 10 numeric digits, e.g. 2023103001
                Format: YYYY + dept code digits + sequence
     Min Att. : 75% (as per Anna University regulations)
-    Features : Attendance (batch + per-course fallback), Course name mapping,
-               Weekly Schedule (via ClassSchedule/initial_loader), Student Name
+    Features : Attendance, Course name mapping
                NOTE: CA Marks / GPA / CGPA are NOT available on this portal.
+               NOTE: Weekly timetable scraping not yet implemented (returns empty).
 
     Login flow:
-      1. GET  /Login/UserLogin           → Establish session cookies
-      2. POST /Login/LoginVerification   → AJAX login with inRegNo + inPassword
-      3. POST /Login/SetUserSessionData  → Finalize server-side session variables
-      4. GET  gotoUrl (e.g. /Dashbord)   → Navigate to set student context (semester, branch)
-
-    Attendance flow:
-      1. GET  /Students_Attendance                               → Establish Referer
-      2. POST /Student/Students_Attendance_Detail/fetchCourseCodeForCurrSemester → Course list
-      3. POST /Student/Students_Attendance_Detail/fetchAllCoursesAttendanceInfo  → Batch held/absence
-         (fallback: fetchSelectedCourseAttendanceInfo per course)
+      1. GET /Login/UserLogin → Establish session cookies
+      2. POST /Login/LoginVerification (AJAX) with inRegNo + inPassword
+      3. POST /Login/SetUserSessionData (AJAX) to finalize session variables
     """
     ECAMPUS_URL = "https://www.auegov.ac.in/"
     MIN_ATTENDANCE = 75
@@ -811,11 +892,11 @@ class EcampusCEGScraper:
     def _login(self, username, password):
         """Authenticate with CeGov portal using AJAX login verification flow"""
         try:
-            # 1. GET UserLogin to fetch cookies + establish session
+            # 1. GET UserLogin to fetch cookies
             login_url = f"{self.ECAMPUS_URL}Login/UserLogin"
             self.session.get(login_url, timeout=30)
 
-            # 2. POST to LoginVerification (AJAX endpoint)
+            # 2. POST to LoginVerification
             verification_url = f"{self.ECAMPUS_URL}Login/LoginVerification"
             login_data = {
                 'inRegNo': username,
@@ -826,179 +907,52 @@ class EcampusCEGScraper:
             res_data = response.json()
             logger.info(f"CEG LoginVerification Response: {res_data}")
 
-            # status 1 = Success, 2/3/4/9 = various errors
+            # status 1 = Success
             if res_data.get('status') != 1:
                 logger.error(f"CEG CeGov login fail: {res_data.get('errorMsg', 'Unknown error')}")
                 return False
 
             # 3. Finalize session variables using SetUserSessionData
-            #    The real portal fetches the user's IP from api.ipify.org and passes it here.
-            #    We send a placeholder; the critical part is calling this endpoint to set
-            #    server-side session variables (student context, permissions, etc.).
             session_data_url = f"{self.ECAMPUS_URL}Login/SetUserSessionData"
             session_payload = {
-                'ipAddress': '0.0.0.0',
+                'ipAddress': '127.0.0.1',
                 'loginActivity': 'User Logged In'
             }
-            session_resp = self.session.post(session_data_url, data=session_payload, timeout=30)
-            logger.info(f"CEG SetUserSessionData status: {session_resp.status_code}")
-
-            # 4. Follow the gotoUrl redirect — the real portal does
-            #    location.replace(data.gotoUrl) which navigates to the Dashboard.
-            #    This GET is essential because the server may finalize student context
-            #    (semester, branch, etc.) on the first authenticated page load.
-            goto_url = res_data.get('gotoUrl', '')
-            if goto_url:
-                # gotoUrl is typically a relative path like "/Dashbord"
-                full_goto = goto_url if goto_url.startswith('http') else f"{self.ECAMPUS_URL.rstrip('/')}{goto_url}"
-                self.session.headers.update({'Referer': login_url})
-                self.session.get(full_goto, timeout=30)
-                logger.info(f"CEG followed gotoUrl: {full_goto}")
-            else:
-                # Fallback: visit the Dashboard to establish student context
-                self.session.get(f"{self.ECAMPUS_URL}Dashbord", timeout=30)
-                logger.info("CEG fallback: visited /Dashbord")
-
+            self.session.post(session_data_url, data=session_payload, timeout=30)
+            
             return True
         except Exception as e:
             logger.error(f"CEG CeGov Login error: {str(e)}")
             return False
 
     def get_attendance(self):
-        """Fetch attendance data via JSON endpoints.
-
-        Strategy:
-          1. POST fetchCourseCodeForCurrSemester → get courseDetail list
-          2. Try the *batch* endpoint fetchAllCoursesAttendanceInfo (faster,
-             what the real portal uses) first.
-          3. If batch fails, fall back to per-course fetchSelectedCourseAttendanceInfo.
-        """
+        """Fetch attendance data via JSON endpoints directly"""
         if not self.authenticated:
             return None, None, "Authentication failed"
 
         try:
-            # Visit the attendance page first so the Referer chain is correct
-            # and any server-side guards based on navigation flow are satisfied.
-            att_page_url = f"{self.ECAMPUS_URL}Students_Attendance"
-            self.session.get(att_page_url, timeout=30)
-
             headers = {
-                'Referer': att_page_url
+                'Referer': f"{self.ECAMPUS_URL}Students_Attendance"
             }
             
-            # Step 1: Fetch the courses for current semester
+            # Fetch the courses for current semester
             courses_url = f"{self.ECAMPUS_URL}Student/Students_Attendance_Detail/fetchCourseCodeForCurrSemester"
             courses_resp = self.session.post(courses_url, headers=headers, timeout=30)
-            logger.info(f"CEG fetchCourseCode status: {courses_resp.status_code}")
-
-            try:
-                courses_data = courses_resp.json()
-            except Exception as json_err:
-                logger.error(f"CEG fetchCourseCode JSON parse error: {json_err}, body: {courses_resp.text[:500]}")
-                return None, "No data", "eCampus returned invalid data. The portal may be under maintenance."
-
+            courses_data = courses_resp.json()
+            
             course_details = courses_data.get('courseDetail', [])
             if not course_details:
-                logger.warning(f"CEG fetchCourseCode returned empty courseDetail. Full response keys: {list(courses_data.keys())}")
                 return None, "No data", "No attendance records found for this semester"
 
-            logger.info(f"CEG found {len(course_details)} courses for current semester")
-
-            # Build the course list in the format the batch endpoint expects
-            course_list = []
-            for item in course_details:
-                course_list.append({
-                    'course_code': item.get('ASE_COURSE_CODE'),
-                    'staff_id': item.get('ASE_STAFFID'),
-                    'session_id': item.get('ASE_SESSIONID'),
-                    'mark_id': item.get('ASE_MARKID'),
-                })
-
-            # Step 2: Try the batch endpoint first (faster, single request)
-            attendance_data = self._fetch_attendance_batch(course_list, headers)
-
-            # Step 3: Fallback to per-course if batch returned nothing
-            if not attendance_data:
-                logger.info("CEG batch endpoint returned no data, falling back to per-course")
-                attendance_data = self._fetch_attendance_per_course(course_details, headers)
-
-            if not attendance_data:
-                return None, "No data", "Could not retrieve attendance details from eCampus"
-
-            last_update = datetime.now().strftime("%d-%b-%Y %I:%M %p")
-            return attendance_data, last_update, "Success"
-        except Exception as e:
-            logger.error(f"CEG Attendance fetch error: {str(e)}")
-            return None, "No data", f"Error: {str(e)}"
-
-    def _fetch_attendance_batch(self, course_list, headers):
-        """Use the batch endpoint fetchAllCoursesAttendanceInfo (single request for all courses)."""
-        try:
-            import json
-            batch_url = f"{self.ECAMPUS_URL}Student/Students_Attendance_Detail/fetchAllCoursesAttendanceInfo"
-            batch_payload = {
-                'courses': json.dumps(course_list)
-            }
-            resp = self.session.post(batch_url, data=batch_payload, headers=headers, timeout=30)
-            data = resp.json()
-
-            if not data or data.get('status') != 'success':
-                logger.warning(f"CEG batch endpoint status: {data.get('status') if data else 'empty'}")
-                return None
-
-            # data contains: courseTitles (dict), held (list), absence (list)
-            course_titles = data.get('courseTitles', {})
-            held_rows = data.get('held', []) or []
-            absence_rows = data.get('absence', []) or []
-
-            # Group by mark_id
-            buckets = {}
-            for c in course_list:
-                mid = c['mark_id']
-                buckets[mid] = {
-                    'code': c['course_code'],
-                    'name': course_titles.get(c['course_code'], c['course_code']),
-                    'held': [],
-                    'absent': [],
-                }
-            for row in held_rows:
-                mid = row.get('AC_MARKID')
-                if mid in buckets:
-                    buckets[mid]['held'].append(row)
-            for row in absence_rows:
-                mid = row.get('AC_MARKID')
-                if mid in buckets:
-                    buckets[mid]['absent'].append(row)
-
             attendance_data = []
-            for mid, bucket in buckets.items():
-                total = len(bucket['held'])
-                attended = max(total - len(bucket['absent']), 0)
-                percentage = (attended / total * 100) if total > 0 else 0.0
-                attendance_data.append({
-                    'code': bucket['code'],
-                    'name': bucket['name'],
-                    'total': total,
-                    'attended': attended,
-                    'percentage': round(percentage, 2),
-                })
-
-            logger.info(f"CEG batch endpoint returned {len(attendance_data)} courses")
-            return attendance_data if attendance_data else None
-        except Exception as e:
-            logger.error(f"CEG batch attendance error: {str(e)}")
-            return None
-
-    def _fetch_attendance_per_course(self, course_details, headers):
-        """Fallback: fetch attendance one course at a time using fetchSelectedCourseAttendanceInfo."""
-        attendance_data = []
-        for item in course_details:
-            try:
+            
+            for item in course_details:
                 course_code = item.get('ASE_COURSE_CODE')
                 staff_id = item.get('ASE_STAFFID')
                 session_id = item.get('ASE_SESSIONID')
                 mark_id = item.get('ASE_MARKID')
-
+                
+                # Fetch class details (held & absent)
                 detail_url = f"{self.ECAMPUS_URL}Student/Students_Attendance_Detail/fetchSelectedCourseAttendanceInfo"
                 payload = {
                     'course_code': course_code,
@@ -1008,15 +962,15 @@ class EcampusCEGScraper:
                 }
                 detail_resp = self.session.post(detail_url, data=payload, headers=headers, timeout=30)
                 detail_data = detail_resp.json()
-
+                
                 course_name = detail_data.get('courseTitle', course_code)
                 held = detail_data.get('courseHeld', []) or []
                 absent = detail_data.get('absenceDetail', []) or []
-
+                
                 total = len(held)
                 attended = total - len(absent)
                 percentage = (attended / total * 100) if total > 0 else 0.0
-
+                
                 attendance_data.append({
                     'code': course_code,
                     'name': course_name,
@@ -1024,11 +978,12 @@ class EcampusCEGScraper:
                     'attended': attended,
                     'percentage': round(percentage, 2),
                 })
-            except Exception as e:
-                logger.error(f"CEG per-course fetch error for {item.get('ASE_COURSE_CODE', '?')}: {str(e)}")
-                continue
 
-        return attendance_data if attendance_data else None
+            last_update = datetime.now().strftime("%d-%b-%Y %I:%M %p")
+            return attendance_data, last_update, "Success"
+        except Exception as e:
+            logger.error(f"CEG Attendance fetch error: {str(e)}")
+            return None, "No data", f"Error: {str(e)}"
 
     def get_timetable(self):
         """Build course code→name mapping from attendance data"""
@@ -1046,106 +1001,48 @@ class EcampusCEGScraper:
             return {}, f"Error: {str(e)}"
 
     def get_weekly_schedule(self):
-        """Fetch weekly class schedule from CeGov ClassSchedule endpoint.
-
-        The real portal calls GET Student/ClassSchedule/initial_loader which returns
-        JSON with timetable_data — an array of objects like:
-          { ACS_DAY: 1..6, ACS_HOUR: "1" or "3,4", ASL_COURSE_CODE: "MA5176", ... }
-        ACS_DAY: 1=Mon, 2=Tue, …, 5=Fri, 6=Sat
-        ACS_HOUR: period number(s), comma-separated for multi-hour slots
+        """CEG portal does not expose a weekly timetable in a parseable form yet.
+        Return an empty schedule so the app gracefully falls back.
         """
-        if not self.authenticated:
-            return {day: [] for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']}, "Authentication failed"
-
-        try:
-            # Visit ClassSchedule page first (Referer chain)
-            self.session.get(f"{self.ECAMPUS_URL}ClassSchedule", timeout=30)
-
-            schedule_url = f"{self.ECAMPUS_URL}Student/ClassSchedule/initial_loader"
-            resp = self.session.get(schedule_url, timeout=30)
-            data = resp.json()
-
-            if data.get('status') != 1 or not data.get('timetable_data'):
-                logger.warning(f"CEG ClassSchedule status: {data.get('status')}")
-                return {day: [] for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']}, "Schedule not available"
-
-            day_map = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri'}
-            # Build schedule: for each day, collect unique course codes in period order
-            day_periods = {d: {} for d in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']}
-
-            for entry in data['timetable_data']:
-                day_num = entry.get('ACS_DAY')
-                day_name = day_map.get(day_num)
-                if not day_name:
-                    continue  # skip Saturday (6) and nulls
-
-                course = entry.get('ASL_COURSE_CODE', '')
-                if not course:
-                    continue
-
-                hour_str = str(entry.get('ACS_HOUR', ''))
-                if not hour_str:
-                    continue
-
-                # ACS_HOUR can be "3" or "3,4" for multi-hour slots
-                for h in hour_str.split(','):
-                    try:
-                        period = int(h.strip())
-                        day_periods[day_name][period] = course
-                    except ValueError:
-                        continue
-
-            # Convert to ordered list per day
-            schedule = {}
-            for day_name in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']:
-                periods = day_periods[day_name]
-                if periods:
-                    max_period = max(periods.keys())
-                    schedule[day_name] = [
-                        periods.get(p, 'Free') for p in range(1, max_period + 1)
-                    ]
-                else:
-                    schedule[day_name] = []
-
-            logger.info(f"CEG ClassSchedule: parsed {sum(len(v) for v in schedule.values())} slots")
-            return schedule, "Success"
-        except Exception as e:
-            logger.error(f"CEG ClassSchedule fetch error: {str(e)}")
-            return {day: [] for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']}, f"Error: {str(e)}"
+        return {day: [] for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']}, "Success"
 
     def get_student_name(self):
-        """Get student name from CeGov Dashboard AJAX endpoint.
-
-        The real portal calls POST Student/Dashbord/GetDashbordData which returns JSON
-        with StudentName, StudentRegNo, etc.
-        """
+        """Get student name from CeGov portal profile page"""
         if not self.authenticated:
             return "Student"
         try:
-            dashboard_url = f"{self.ECAMPUS_URL}Student/Dashbord/GetDashbordData"
-            headers = {'Referer': f"{self.ECAMPUS_URL}Dashbord"}
-            response = self.session.post(dashboard_url, headers=headers, timeout=20)
-            data = response.json()
-
-            if data.get('status') == 1 and data.get('StudentName'):
-                name = data['StudentName'].strip()
-                # Title-case it if it's all-caps (portal returns uppercase names)
-                if name.isupper():
-                    name = name.title()
-                return name
-
-            # Fallback: try parsing the Dashboard HTML
-            dash_resp = self.session.get(f"{self.ECAMPUS_URL}Dashbord", timeout=20)
-            soup = BeautifulSoup(dash_resp.text, 'html.parser')
-            name_el = soup.find('p', {'id': 'dashNameId'})
-            if name_el and name_el.text.strip():
-                name = name_el.text.strip()
-                return name.title() if name.isupper() else name
-
+            home_url = f"{self.ECAMPUS_URL}Home/Index"
+            response = self.session.get(home_url, timeout=20)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # Try common name placements in CeGov portal
+            for selector in [
+                {'class': lambda x: x and 'student-name' in x},
+                {'id': 'lblStudentName'},
+                {'id': 'lbluser'},
+            ]:
+                el = soup.find(attrs=selector) if isinstance(selector, dict) else soup.select_one(selector)
+                if el and el.text.strip():
+                    return el.text.strip()
             return "Student"
         except Exception as e:
             logger.error(f"CEG Student name fetch error: {str(e)}")
             return "Student"
+
+    def get_all_data(self):
+        """Fetch attendance, course mapping, schedule, and student name for CEG"""
+        if not self.authenticated:
+            return None, None, {}, {day: [] for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']}, "Student", "Authentication failed"
+            
+        attendance_data, last_update, att_msg = self.get_attendance()
+        course_mapping = {}
+        if attendance_data:
+            for s in attendance_data:
+                course_mapping[s['code']] = s['name']
+                
+        schedule, _ = self.get_weekly_schedule()
+        student_name = self.get_student_name()
+        
+        return attendance_data, last_update, course_mapping, schedule, student_name, "Success"
 
 
 @app.route('/manifest.json')
@@ -1208,10 +1105,11 @@ def index():
 
 
 @app.route('/api/login', methods=['POST'])
+@app.route('/login', methods=['POST'])
 def api_login():
-    """API endpoint for login - Supports both PSG Tech and PSG IAS"""
+    """API endpoint for login - Supports PSG Tech, PSG IAS, and CEG"""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         username = data.get('username', '').strip().upper()
         password = data.get('password', '').strip()
         
@@ -1224,7 +1122,7 @@ def api_login():
         if not college:
             return jsonify({
                 'success': False, 
-                'error': 'Invalid roll number format. Use 6 characters for PSG Tech or 7 for PSG IAS.'
+                'error': 'Invalid roll number format. Use 6-7 characters for PSG Tech/IAS or 10 digits for CEG.'
             })
         
         # Select appropriate scraper based on college
@@ -1240,13 +1138,10 @@ def api_login():
         if not scraper.authenticated:
             return jsonify({'success': False, 'error': 'Invalid credentials'})
         
-        # Fetch all data
-        attendance_data, last_update, att_msg = scraper.get_attendance()
-        course_mapping, _ = scraper.get_timetable()
-        weekly_schedule, _ = scraper.get_weekly_schedule()
-        student_name = scraper.get_student_name()
+        # Fetch all data in one pass
+        attendance_data, last_update, course_mapping, weekly_schedule, student_name, att_msg = scraper.get_all_data()
         
-        # For CEG: success is based on having attendance data (timetable is optional)
+        # For CEG: success is based on having attendance data (timetable is optional/synthetic)
         # For PSG: must have timetable+course_mapping
         if college == 'CEG':
             if not attendance_data:
@@ -1254,11 +1149,8 @@ def api_login():
                     'success': False,
                     'error': 'Unable to fetch attendance data. Please try again.'
                 })
-            # Use real timetable from ClassSchedule if available;
-            # otherwise build a synthetic one so Smart Tracker still works.
-            has_real_schedule = weekly_schedule and any(
-                len(slots) > 0 for slots in weekly_schedule.values()
-            )
+            # Build a synthetic timetable from course codes if no schedule found
+            has_real_schedule = weekly_schedule and any(len(slots) > 0 for slots in weekly_schedule.values())
             if not has_real_schedule:
                 codes = [s['code'] for s in attendance_data]
                 days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
@@ -1296,16 +1188,12 @@ def api_login():
             'course_mapping': course_mapping,
             'last_update': last_update or "No data",
             'college': college,
-            'has_calendar': college == 'PSGTECH'  # Only PSG Tech has calendar support
+            'has_calendar': college == 'PSGTECH'
         }
         
-        # Add student name if available
-        if college in ('PSGIAS', 'CEG'):
-            student_name = scraper.get_student_name()
-            if student_name and student_name != "Student":
-                response_data['student_name'] = student_name
+        if student_name and student_name != "Student":
+            response_data['student_name'] = student_name
 
-        # For CEG, expose minimum attendance so frontend can show correct threshold
         if college == 'CEG':
             response_data['min_attendance'] = EcampusCEGScraper.MIN_ATTENDANCE
 
@@ -1317,17 +1205,14 @@ def api_login():
 
 
 @app.route('/api/calendar/<roll>')
+@app.route('/calendar/<roll>')
 def api_calendar(roll):
     """Proxy calendar API to avoid CORS issues"""
     try:
         roll = roll.strip().upper()
-        
-        # Detect college to determine if calendar is available
         college = detect_college(roll)
         
         if college == 'PSGIAS':
-            # Return empty placeholder for PSG IAS
-            from datetime import datetime
             return jsonify({
                 'name': 'PSG IAS Academic Year',
                 'startDate': datetime.now().isoformat(),
@@ -1337,8 +1222,6 @@ def api_calendar(roll):
             })
 
         if college == 'CEG':
-            # CEG (Anna University) does not expose a calendar via the same API
-            from datetime import datetime
             return jsonify({
                 'name': 'CEG Academic Year',
                 'startDate': datetime.now().isoformat(),
@@ -1347,18 +1230,14 @@ def api_calendar(roll):
                 'activities': []
             })
             
-        # PSG Tech Logic (Default)
         planner_id = get_planner_id(roll)
-        
         if not planner_id:
             return jsonify({
                 'error': 'Could not identify course/year from roll number',
                 'rollNumber': roll
             }), 400
         
-        # Fetch from academic schedule API
         calendar_url = f"https://academicschedule.psgtech.ac.in/api/calendar/{CONFIG['API_YEAR']}/planner/{planner_id}"
-        
         response = requests.get(calendar_url, timeout=10)
         
         if response.status_code != 200:
@@ -1372,6 +1251,7 @@ def api_calendar(roll):
 
 
 @app.route('/api/internals', methods=['POST'])
+@app.route('/internals', methods=['POST'])
 def api_internals():
     """Fetch CA internal marks from eCampus"""
     try:
@@ -1474,6 +1354,7 @@ def api_internals():
 
 
 @app.route('/api/gpa', methods=['POST'])
+@app.route('/gpa', methods=['POST'])
 def api_gpa():
     """Fetch GPA / semester result from eCampus"""
     try:
@@ -1580,6 +1461,7 @@ def api_gpa():
 
 
 @app.route('/api/cgpa', methods=['POST'])
+@app.route('/cgpa', methods=['POST'])
 def api_cgpa():
     """Fetch CGPA from easycollege API (all semesters) and local scraping for subjects"""
     try:
@@ -1739,6 +1621,7 @@ def api_cgpa():
 
 
 @app.route('/api/health')
+@app.route('/health')
 def health():
     """Health check endpoint"""
     return jsonify({
