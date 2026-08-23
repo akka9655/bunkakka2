@@ -1,9 +1,9 @@
-const CACHE_NAME = 'bunker-cache-v16';
+const CACHE_NAME = 'bunker-cache-v11';
 // Only cache assets we control (opaque CDN responses break cache.addAll)
 const PRECACHE_ASSETS = [
     '/',
-    '/static/style.css?v=3.5.0',
-    '/static/app.js?v=3.5.0',
+    '/static/style.css?v=3.4.1',
+    '/static/app.js?v=3.4.2',
     '/static/legal.js?v=1.0.1',
     '/manifest.json?v=bunker6',
     '/static/icon.png',

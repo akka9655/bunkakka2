@@ -186,46 +186,35 @@ def detect_college(roll_number):
     Rules (applied in order):
       1. Exactly 10 digits  →  'CEG'     (Anna Univ. / CeGov portal: auegov.ac.in)
          e.g. 2023103001
-      2. Contains a known PSG Tech course code  →  'PSGTECH'
-         e.g. 22CSA01, 22CSB15, 22L101, 22U315, 23IT01, 21MX05, 22A101
-      3. Otherwise  →  'PSGIAS'
-         e.g. 25IR007, 24BM001, 23IB012
+      2. Contains a known PSG Tech course code letter(s)  →  'PSGTECH'
+         e.g. 22CSA01  (C = BE course code)
+      3. Anything else  →  'PSGIAS'
+         e.g. 25IR007
     """
     if not roll_number:
         return None
     
     roll_number = roll_number.strip().upper()
     
-    # --- Rule 1: CEG (Anna University constituent colleges: exactly 10 digits) ---
+    # --- Rule 1: CEG (Anna University constituent colleges) ---
+    # CEG roll numbers are exactly 10 numeric digits, e.g. 2023103001
+    # They are purely numeric, so we check before looking for letters.
     import re
     if re.match(r'^\d{10}$', roll_number):
         return 'CEG'
     
-    # --- Rule 2: Extract letters after the 2-digit entry year (PSG Tech vs PSG IAS) ---
-    match = re.search(r'^\d{2}([A-Z]+)', roll_number)
+    # --- Rule 2: PSG Tech ---
+    # PSG Tech roll numbers contain uppercase letters (course code) after the year.
+    # e.g. 22CSA01 → letters 'C' or 'CS' map to a known course type.
+    match = re.search(r'[A-Z]+', roll_number)
     if match:
-        letters = match.group(1)
-        # Specific PSG IAS known prefix codes to prevent false match with single letter fallbacks
-        ias_prefixes = {'IR', 'IB', 'BA', 'BM', 'AS', 'AU', 'US', 'UK', 'DE', 'GE', 'NA'}
-        if any(letters.startswith(ias_p) for ias_p in ias_prefixes):
-            return 'PSGIAS'
-        # Check 2-letter codes first (e.g. 'CS' from 'CSA', 'IT', 'AE', 'MX', etc.)
-        if len(letters) >= 2 and letters[:2] in CONFIG['COURSE_CODES']:
-            return 'PSGTECH'
-        # Check 1-letter codes (e.g. 'U', 'A', 'D', 'C', 'Z', 'N', 'E', 'L', 'M', 'Y', 'P', 'R', 'B', 'H', 'I', 'T', 'S', 'X')
-        if len(letters) >= 1 and letters[0] in CONFIG['COURSE_CODES']:
-            return 'PSGTECH'
-            
-    # Fallback letter check for any non-standard roll structure
-    match_gen = re.search(r'[A-Z]+', roll_number)
-    if match_gen:
-        gen_letters = match_gen.group(0)
-        if len(gen_letters) >= 2 and gen_letters[:2] in CONFIG['COURSE_CODES']:
-            return 'PSGTECH'
-        if len(gen_letters) >= 1 and gen_letters[0] in CONFIG['COURSE_CODES']:
+        course_code = match.group(0)
+        if course_code in CONFIG['COURSE_CODES']:
             return 'PSGTECH'
 
-    # --- Rule 3: PSG IAS (default fallback) ---
+    # --- Rule 3: PSG IAS (default) ---
+    # Roll numbers with letters not in PSG Tech's course code list (e.g. 25IR007)
+    # or other unrecognised formats fall through to PSG IAS.
     return 'PSGIAS'
 
 
@@ -478,78 +467,6 @@ class EcampusScraper:
         except Exception as e:
             logger.error(f"Student name fetch error: {str(e)}")
             return "Student"
-
-    def get_all_data(self):
-        """Fetch attendance, course mapping, weekly schedule, and student name in minimum requests"""
-        if not self.authenticated:
-            return None, None, {}, {day: [] for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']}, "Student", "Authentication failed"
-            
-        attendance_data, last_update, att_msg = self.get_attendance()
-        
-        course_mapping = {}
-        schedule = {day: [] for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']}
-        student_name = "Student"
-        
-        try:
-            import re
-            timetable_url = f"{self.ECAMPUS_URL}AttWfStudTimtab.aspx"
-            response = self.session.get(timetable_url, timeout=15)
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # 1. Course mapping
-            table_desc = soup.find('table', {'id': 'TbCourDesc'})
-            if table_desc:
-                for row in table_desc.find_all('tr')[1:]:
-                    cols = [col.text.strip() for col in row.find_all('td')]
-                    if len(cols) >= 2:
-                        course_mapping[cols[0]] = cols[1]
-                        
-            # 2. Weekly schedule
-            days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-            table_tt = soup.find('table', {'id': 'DtStfTimtab'})
-            if table_tt:
-                rows = table_tt.find_all('tr')
-                start_idx = 0
-                for i, row in enumerate(rows):
-                    row_text = row.get_text(strip=True).lower()
-                    if 'mon' in row_text or i > 1:
-                        start_idx = i
-                        break
-                
-                for day_idx, day in enumerate(days):
-                    row_idx = start_idx + day_idx
-                    if row_idx < len(rows):
-                        row = rows[row_idx]
-                        cols = row.find_all('td')
-                        for col in cols[1:]:
-                            content = col.get_text(strip=True)
-                            if content and content.lower() != 'free':
-                                matched_code = None
-                                for course_code in course_mapping.keys():
-                                    if course_code.lower() in content.lower():
-                                        matched_code = course_code
-                                        break
-                                if matched_code:
-                                    schedule[day].append(matched_code)
-                                else:
-                                    codes = re.findall(r'[A-Z0-9]+', content.upper())
-                                    if codes:
-                                        course_code = next((c for c in codes if len(c) >= 5 and any(ch.isdigit() for ch in c)), codes[0] if codes else 'Unknown')
-                                        schedule[day].append(course_code)
-                                    else:
-                                        schedule[day].append('Free')
-                            else:
-                                schedule[day].append('Free')
-                                
-            # 3. Student name
-            name_element = soup.find('span', {'id': 'lbluser'})
-            if name_element and name_element.text.strip():
-                student_name = name_element.text.strip()
-                
-        except Exception as e:
-            logger.error(f"Timetable page parse error: {str(e)}")
-            
-        return attendance_data, last_update, course_mapping, schedule, student_name, "Success"
 
 
 class EcampusIASScraper:
@@ -838,22 +755,6 @@ class EcampusIASScraper:
             logger.error(f"PSG IAS Student name fetch error: {str(e)}")
             return "Student"
 
-    def get_all_data(self):
-        """Fetch attendance, course mapping, weekly schedule, and student name for PSG IAS"""
-        if not self.authenticated:
-            return None, None, {}, {day: [] for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']}, "Student", "Authentication failed"
-            
-        attendance_data, last_update, att_msg = self.get_attendance()
-        course_mapping = {}
-        if attendance_data:
-            for s in attendance_data:
-                course_mapping[s['code']] = s['name']
-                
-        schedule, _ = self.get_weekly_schedule()
-        student_name = self.get_student_name()
-        
-        return attendance_data, last_update, course_mapping, schedule, student_name, "Success"
-
 
 
 class EcampusCEGScraper:
@@ -1028,22 +929,6 @@ class EcampusCEGScraper:
             logger.error(f"CEG Student name fetch error: {str(e)}")
             return "Student"
 
-    def get_all_data(self):
-        """Fetch attendance, course mapping, schedule, and student name for CEG"""
-        if not self.authenticated:
-            return None, None, {}, {day: [] for day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']}, "Student", "Authentication failed"
-            
-        attendance_data, last_update, att_msg = self.get_attendance()
-        course_mapping = {}
-        if attendance_data:
-            for s in attendance_data:
-                course_mapping[s['code']] = s['name']
-                
-        schedule, _ = self.get_weekly_schedule()
-        student_name = self.get_student_name()
-        
-        return attendance_data, last_update, course_mapping, schedule, student_name, "Success"
-
 
 @app.route('/manifest.json')
 def serve_manifest():
@@ -1053,63 +938,21 @@ def serve_manifest():
 def serve_favicon():
     return app.send_static_file('favicon.ico')
 
-@app.route('/favicon.png')
-def serve_favicon_png():
-    return app.send_static_file('favicon.png')
-
-@app.route('/icon.png')
-def serve_icon_png():
-    return app.send_static_file('icon.png')
-
-@app.route('/icon-192.png')
-def serve_icon_192():
-    return app.send_static_file('icon-192.png')
-
-@app.route('/icon-512.png')
-def serve_icon_512():
-    return app.send_static_file('icon-512.png')
-
 @app.route('/sw.js')
 def serve_sw():
-    response = app.send_static_file('sw.js')
-    response.headers['Service-Worker-Allowed'] = '/'
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    return response
-
-@app.route('/robots.txt')
-def serve_robots():
-    return app.send_static_file('robots.txt')
-
-@app.route('/sitemap.xml')
-def serve_sitemap():
-    return app.send_static_file('sitemap.xml')
-
-@app.route('/llms.txt')
-def serve_llms():
-    return app.send_static_file('llms.txt')
-
-@app.route('/version.json')
-def serve_version():
-    return jsonify({
-        "version": 2,
-        "downloadUrl": "https://github.com/akka9655/bunkakka/blob/main/static/bunker.apk",
-        "releaseNotes": "added new feature"
-    })
+    return app.send_static_file('sw.js')
 
 @app.route('/')
-@app.route('/index.html')
-@app.route('/api/index.py')
 def index():
     """Serve main application"""
     return render_template('index.html')
 
 
 @app.route('/api/login', methods=['POST'])
-@app.route('/login', methods=['POST'])
 def api_login():
-    """API endpoint for login - Supports PSG Tech, PSG IAS, and CEG"""
+    """API endpoint for login - Supports both PSG Tech and PSG IAS"""
     try:
-        data = request.get_json() or {}
+        data = request.get_json()
         username = data.get('username', '').strip().upper()
         password = data.get('password', '').strip()
         
@@ -1122,7 +965,7 @@ def api_login():
         if not college:
             return jsonify({
                 'success': False, 
-                'error': 'Invalid roll number format. Use 6-7 characters for PSG Tech/IAS or 10 digits for CEG.'
+                'error': 'Invalid roll number format. Use 6 characters for PSG Tech or 7 for PSG IAS.'
             })
         
         # Select appropriate scraper based on college
@@ -1138,8 +981,11 @@ def api_login():
         if not scraper.authenticated:
             return jsonify({'success': False, 'error': 'Invalid credentials'})
         
-        # Fetch all data in one pass
-        attendance_data, last_update, course_mapping, weekly_schedule, student_name, att_msg = scraper.get_all_data()
+        # Fetch all data
+        attendance_data, last_update, att_msg = scraper.get_attendance()
+        course_mapping, _ = scraper.get_timetable()
+        weekly_schedule, _ = scraper.get_weekly_schedule()
+        student_name = scraper.get_student_name()
         
         # For CEG: success is based on having attendance data (timetable is optional/synthetic)
         # For PSG: must have timetable+course_mapping
@@ -1149,15 +995,14 @@ def api_login():
                     'success': False,
                     'error': 'Unable to fetch attendance data. Please try again.'
                 })
-            # Build a synthetic timetable from course codes if no schedule found
-            has_real_schedule = weekly_schedule and any(len(slots) > 0 for slots in weekly_schedule.values())
-            if not has_real_schedule:
-                codes = [s['code'] for s in attendance_data]
-                days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-                synthetic_tt = {}
-                for i, day in enumerate(days):
-                    synthetic_tt[day] = [codes[j] for j in range(len(codes)) if j % len(days) == i]
-                weekly_schedule = synthetic_tt
+            # Build a synthetic timetable from the course codes so Smart Tracker works.
+            # Since CeGov doesn't expose a day-wise schedule, we spread all courses across weekdays.
+            codes = [s['code'] for s in attendance_data]
+            days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+            synthetic_tt = {}
+            for i, day in enumerate(days):
+                synthetic_tt[day] = [codes[j] for j in range(len(codes)) if j % len(days) == i]
+            weekly_schedule = synthetic_tt
         else:
             if not weekly_schedule or not course_mapping:
                 return jsonify({
@@ -1188,12 +1033,16 @@ def api_login():
             'course_mapping': course_mapping,
             'last_update': last_update or "No data",
             'college': college,
-            'has_calendar': college == 'PSGTECH'
+            'has_calendar': college == 'PSGTECH'  # Only PSG Tech has calendar support
         }
         
-        if student_name and student_name != "Student":
-            response_data['student_name'] = student_name
+        # Add student name if available
+        if college in ('PSGIAS', 'CEG'):
+            student_name = scraper.get_student_name()
+            if student_name and student_name != "Student":
+                response_data['student_name'] = student_name
 
+        # For CEG, expose minimum attendance so frontend can show correct threshold
         if college == 'CEG':
             response_data['min_attendance'] = EcampusCEGScraper.MIN_ATTENDANCE
 
@@ -1205,14 +1054,17 @@ def api_login():
 
 
 @app.route('/api/calendar/<roll>')
-@app.route('/calendar/<roll>')
 def api_calendar(roll):
     """Proxy calendar API to avoid CORS issues"""
     try:
         roll = roll.strip().upper()
+        
+        # Detect college to determine if calendar is available
         college = detect_college(roll)
         
         if college == 'PSGIAS':
+            # Return empty placeholder for PSG IAS
+            from datetime import datetime
             return jsonify({
                 'name': 'PSG IAS Academic Year',
                 'startDate': datetime.now().isoformat(),
@@ -1222,6 +1074,8 @@ def api_calendar(roll):
             })
 
         if college == 'CEG':
+            # CEG (Anna University) does not expose a calendar via the same API
+            from datetime import datetime
             return jsonify({
                 'name': 'CEG Academic Year',
                 'startDate': datetime.now().isoformat(),
@@ -1230,14 +1084,18 @@ def api_calendar(roll):
                 'activities': []
             })
             
+        # PSG Tech Logic (Default)
         planner_id = get_planner_id(roll)
+        
         if not planner_id:
             return jsonify({
                 'error': 'Could not identify course/year from roll number',
                 'rollNumber': roll
             }), 400
         
+        # Fetch from academic schedule API
         calendar_url = f"https://academicschedule.psgtech.ac.in/api/calendar/{CONFIG['API_YEAR']}/planner/{planner_id}"
+        
         response = requests.get(calendar_url, timeout=10)
         
         if response.status_code != 200:
@@ -1251,7 +1109,6 @@ def api_calendar(roll):
 
 
 @app.route('/api/internals', methods=['POST'])
-@app.route('/internals', methods=['POST'])
 def api_internals():
     """Fetch CA internal marks from eCampus"""
     try:
@@ -1354,7 +1211,6 @@ def api_internals():
 
 
 @app.route('/api/gpa', methods=['POST'])
-@app.route('/gpa', methods=['POST'])
 def api_gpa():
     """Fetch GPA / semester result from eCampus"""
     try:
@@ -1461,7 +1317,6 @@ def api_gpa():
 
 
 @app.route('/api/cgpa', methods=['POST'])
-@app.route('/cgpa', methods=['POST'])
 def api_cgpa():
     """Fetch CGPA from easycollege API (all semesters) and local scraping for subjects"""
     try:
@@ -1621,7 +1476,6 @@ def api_cgpa():
 
 
 @app.route('/api/health')
-@app.route('/health')
 def health():
     """Health check endpoint"""
     return jsonify({
