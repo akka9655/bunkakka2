@@ -945,6 +945,7 @@ def serve_version():
     return app.send_from_directory(os.path.join(app.root_path, '..'), 'version.json')
 
 @app.route('/')
+@app.route('/index.html')
 @app.route('/api/index.py')
 @app.route('/api/index')
 def index():
@@ -953,6 +954,7 @@ def index():
 
 
 @app.route('/api/login', methods=['POST'])
+@app.route('/login', methods=['POST'])
 def api_login():
     """API endpoint for login - Supports both PSG Tech and PSG IAS"""
     try:
@@ -1057,6 +1059,7 @@ def api_login():
 
 
 @app.route('/api/calendar/<roll>')
+@app.route('/calendar/<roll>')
 def api_calendar(roll):
     """Proxy calendar API to avoid CORS issues"""
     try:
@@ -1116,6 +1119,7 @@ def api_calendar(roll):
 
 
 @app.route('/api/internals', methods=['POST'])
+@app.route('/internals', methods=['POST'])
 def api_internals():
     """Fetch CA internal marks from eCampus"""
     try:
@@ -1217,6 +1221,7 @@ def api_internals():
 
 
 @app.route('/api/gpa', methods=['POST'])
+@app.route('/gpa', methods=['POST'])
 def api_gpa():
     """Fetch GPA / semester result from eCampus"""
     try:
@@ -1322,6 +1327,7 @@ def api_gpa():
 
 
 @app.route('/api/cgpa', methods=['POST'])
+@app.route('/cgpa', methods=['POST'])
 def api_cgpa():
     """Fetch CGPA from easycollege API (all semesters) and local scraping for subjects"""
     try:
@@ -1479,6 +1485,7 @@ def api_cgpa():
 
 
 @app.route('/api/health')
+@app.route('/health')
 def health():
     """Health check endpoint"""
     resp = jsonify({
