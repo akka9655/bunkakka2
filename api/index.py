@@ -1549,7 +1549,7 @@ class VercelPathFix:
         self.app = app
     def __call__(self, environ, start_response):
         from urllib.parse import parse_qs
-        qs = parse_qs(environ.get('QUERY_STRING', ''))
+        qs = parse_qs(environ.get('QUERY_STRING', ''), keep_blank_values=True)
         
         # 1. Try to use __vercel_path from query string
         if '__vercel_path' in qs:
