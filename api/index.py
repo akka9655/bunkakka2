@@ -980,9 +980,55 @@ def api_login():
         
         if not scraper.authenticated:
             return jsonify({'success': False, 'error': 'Invalid credentials'})
+            
+        import hashlib
+        import json
         
-        # Fetch all data
+        # Cache file path based on credentials
+        cred_hash = hashlib.sha256(f"{username}:{password}:{college}".encode()).hexdigest()
+        cache_path = f"/tmp/bunker_cache_{cred_hash}.json"
+        
+        # Always fetch attendance to verify if new data has been updated from college side
         attendance_data, last_update, att_msg = scraper.get_attendance()
+        
+        if college == 'CEG':
+            if not attendance_data:
+                return jsonify({
+                    'success': False,
+                    'error': 'Unable to fetch attendance data. Please try again.'
+                })
+        
+        use_cache = False
+        cached_response = None
+        
+        if os.path.exists(cache_path):
+            try:
+                with open(cache_path, 'r') as f:
+                    cached_data = json.load(f)
+                    
+                # For CEG, last_update is current time, so we must compare the actual data
+                # For others, we can use last_update if it exists
+                if college == 'CEG' or college == 'PSGIAS':
+                    # Compare actual attendance data
+                    if json.dumps(cached_data.get('raw_attendance', []), sort_keys=True) == json.dumps(attendance_data, sort_keys=True):
+                        use_cache = True
+                else:
+                    # For PSG Tech, last_update is reliable and data might be huge
+                    if cached_data.get('last_update') == last_update and last_update != "No data":
+                        use_cache = True
+                        
+                if use_cache:
+                    cached_response = cached_data.get('response')
+                    # Update the response's last_update for CEG since it's dynamic
+                    if college == 'CEG' and cached_response:
+                        cached_response['last_update'] = last_update
+            except Exception as e:
+                logger.error(f"Cache read error: {e}")
+        
+        if use_cache and cached_response:
+            return jsonify(cached_response)
+            
+        # If cache miss or data updated, fetch the rest
         course_mapping, _ = scraper.get_timetable()
         weekly_schedule, _ = scraper.get_weekly_schedule()
         student_name = scraper.get_student_name()
@@ -990,11 +1036,6 @@ def api_login():
         # For CEG: success is based on having attendance data (timetable is optional/synthetic)
         # For PSG: must have timetable+course_mapping
         if college == 'CEG':
-            if not attendance_data:
-                return jsonify({
-                    'success': False,
-                    'error': 'Unable to fetch attendance data. Please try again.'
-                })
             # Build a synthetic timetable from the course codes so Smart Tracker works.
             # Since CeGov doesn't expose a day-wise schedule, we spread all courses across weekdays.
             codes = [s['code'] for s in attendance_data]
@@ -1045,6 +1086,17 @@ def api_login():
         # For CEG, expose minimum attendance so frontend can show correct threshold
         if college == 'CEG':
             response_data['min_attendance'] = EcampusCEGScraper.MIN_ATTENDANCE
+            
+        # Save to cache
+        try:
+            with open(cache_path, 'w') as f:
+                json.dump({
+                    'last_update': last_update,
+                    'raw_attendance': attendance_data,
+                    'response': response_data
+                }, f)
+        except Exception as e:
+            logger.error(f"Cache write error: {e}")
 
         return jsonify(response_data)
     
