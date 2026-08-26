@@ -3,5 +3,14 @@ m.md
 n.md
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 .DS_Store
-BUNKER WEB old/
+.venv/
+.vercel/
+.env
+.env.local
+*.env
+*.log
+.pytest_cache/
+.coverage

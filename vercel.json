@@ -1,65 +1,66 @@
 {
   "functions": {
     "api/index.py": {
-      "maxDuration": 30
+      "maxDuration": 60,
+      "memory": 512
     }
   },
   "rewrites": [
     {
-      "source": "/static/(.*)",
-      "destination": "/static/$1"
+      "source": "/api/(.*)",
+      "destination": "api/index.py"
     },
     {
       "source": "/favicon.ico",
-      "destination": "/static/favicon.ico"
+      "destination": "static/favicon.ico"
     },
     {
       "source": "/favicon.png",
-      "destination": "/static/favicon.png"
+      "destination": "static/favicon.png"
     },
     {
       "source": "/icon.png",
-      "destination": "/static/icon.png"
+      "destination": "static/icon.png"
     },
     {
       "source": "/icon-192.png",
-      "destination": "/static/icon-192.png"
+      "destination": "static/icon-192.png"
     },
     {
       "source": "/icon-512.png",
-      "destination": "/static/icon-512.png"
+      "destination": "static/icon-512.png"
     },
     {
       "source": "/manifest.json",
-      "destination": "/static/manifest.json"
+      "destination": "static/manifest.json"
     },
     {
       "source": "/sw.js",
-      "destination": "/static/sw.js"
+      "destination": "static/sw.js"
     },
     {
       "source": "/robots.txt",
-      "destination": "/static/robots.txt"
+      "destination": "static/robots.txt"
     },
     {
       "source": "/sitemap.xml",
-      "destination": "/static/sitemap.xml"
+      "destination": "static/sitemap.xml"
     },
     {
       "source": "/llms.txt",
-      "destination": "/static/llms.txt"
+      "destination": "static/llms.txt"
     },
     {
       "source": "/version.json",
-      "destination": "/version.json"
+      "destination": "version.json"
     },
     {
-      "source": "/api/(.*)",
-      "destination": "/api/index.py"
+      "source": "/static/(.*)",
+      "destination": "static/$1"
     },
     {
       "source": "/(.*)",
-      "destination": "/api/index.py"
+      "destination": "api/index.py"
     }
   ],
   "headers": [
@@ -103,11 +104,38 @@
       ]
     },
     {
+      "source": "/api/calendar/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, s-maxage=3600, stale-while-revalidate=86400"
+        }
+      ]
+    },
+    {
+      "source": "/api/health",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, s-maxage=60, stale-while-revalidate=120"
+        }
+      ]
+    },
+    {
       "source": "/api/(.*)",
       "headers": [
         {
           "key": "Cache-Control",
           "value": "no-store, no-cache, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/version.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, s-maxage=300, stale-while-revalidate=600"
         }
       ]
     },
@@ -125,6 +153,14 @@
         {
           "key": "X-XSS-Protection",
           "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
         }
       ]
     }

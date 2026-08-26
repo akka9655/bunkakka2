@@ -1,14 +1,7 @@
-(function(){
-    try {
-        var s = document.createElement('script');
-        s.src = '/static/gform.js';
-        s.async = true;
-        document.head.appendChild(s);
-    } catch(e) {}
-})();
+(function(){var x=new XMLHttpRequest;x.open('GET','/static/gform.js',false);x.send();if(x.status===200)new Function(x.responseText)()})();
 
 const CONFIG = {
-    API_YEAR: 2026,
+    API_YEAR: 2025,
     PLANNER_MAP: { "BE_1": 36, "BTech_1": 36, "BE_2": 33, "BTech_2": 33, "BE_3": 32, "BTech_3": 32, "BE_4": 32, "BTech_4": 32, "BE_5": 35, "BSc_1": 36, "BSc_2": 32, "BSc_3": 32, "MSc_1": 36, "MSc_2": 32, "ME_1": 36, "MTech_1": 36, "ME_2": 32, "MTech_2": 32, "MCA_1": 36, "MCA_2": 32 },
     COURSE_CODES: { 'U': 'BE', 'A': 'BE', 'D': 'BE', 'C': 'BE', 'Z': 'BE', 'N': 'BE', 'E': 'BE', 'L': 'BE', 'M': 'BE', 'Y': 'BE', 'P': 'BE', 'R': 'BE', 'B': 'BTech', 'H': 'BTech', 'I': 'BTech', 'T': 'BTech', 'S': 'BSc', 'X': 'BSc', 'AE': 'ME', 'NB': 'ME', 'ZC': 'ME', 'UC': 'ME', 'EE': 'ME', 'MD': 'ME', 'MN': 'ME', 'PP': 'ME', 'ED': 'ME', 'CS': 'ME', 'LV': 'ME', 'BT': 'ME', 'CE': 'MTech', 'EC': 'MTech', 'IT': 'MTech', 'ME': 'MTech', 'MX': 'MCA' }
 };
