@@ -1548,9 +1548,18 @@ class VercelPathFix:
     def __init__(self, app):
         self.app = app
     def __call__(self, environ, start_response):
-        invoke_path = environ.get('HTTP_X_INVOKE_PATH')
-        if invoke_path:
-            environ['PATH_INFO'] = invoke_path
+        from urllib.parse import parse_qs
+        qs = parse_qs(environ.get('QUERY_STRING', ''))
+        
+        # 1. Try to use __vercel_path from query string
+        if '__vercel_path' in qs:
+            path = qs['__vercel_path'][0]
+            environ['PATH_INFO'] = '/' + path
+            
+        # 2. Fallback to HTTP_X_INVOKE_PATH if available
+        elif environ.get('HTTP_X_INVOKE_PATH'):
+            environ['PATH_INFO'] = environ['HTTP_X_INVOKE_PATH']
+            
         return self.app(environ, start_response)
 
 app.wsgi_app = VercelPathFix(app.wsgi_app)

@@ -1,41 +1,37 @@
 {
-  "builds": [
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python",
-      "config": {
-        "maxDuration": 60
-      }
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 60
     }
-  ],
-  "routes": [
+  },
+  "rewrites": [
     {
-      "src": "/static/(.*)",
-      "dest": "/static/$1"
+      "source": "/static/(.*)",
+      "destination": "/static/$1"
     },
     {
-      "src": "/favicon.ico",
-      "dest": "/static/favicon.ico"
+      "source": "/favicon.ico",
+      "destination": "/static/favicon.ico"
     },
     {
-      "src": "/manifest.json",
-      "dest": "/static/manifest.json"
+      "source": "/manifest.json",
+      "destination": "/static/manifest.json"
     },
     {
-      "src": "/robots.txt",
-      "dest": "/static/robots.txt"
+      "source": "/robots.txt",
+      "destination": "/static/robots.txt"
     },
     {
-      "src": "/sitemap.xml",
-      "dest": "/static/sitemap.xml"
+      "source": "/sitemap.xml",
+      "destination": "/static/sitemap.xml"
     },
     {
-      "src": "/llms.txt",
-      "dest": "/static/llms.txt"
+      "source": "/llms.txt",
+      "destination": "/static/llms.txt"
     },
     {
-      "src": "/(.*)",
-      "dest": "/api/index.py"
+      "source": "/(.*)",
+      "destination": "/api/index.py?__vercel_path=$1"
     }
   ],
   "headers": [
