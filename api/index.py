@@ -1543,3 +1543,14 @@ def health():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=True, host='0.0.0.0', port=port)
+
+class VercelPathFix:
+    def __init__(self, app):
+        self.app = app
+    def __call__(self, environ, start_response):
+        invoke_path = environ.get('HTTP_X_INVOKE_PATH')
+        if invoke_path:
+            environ['PATH_INFO'] = invoke_path
+        return self.app(environ, start_response)
+
+app.wsgi_app = VercelPathFix(app.wsgi_app)
