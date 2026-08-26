@@ -945,6 +945,8 @@ def serve_version():
     return app.send_from_directory(os.path.join(app.root_path, '..'), 'version.json')
 
 @app.route('/')
+@app.route('/api/index.py')
+@app.route('/api/index')
 def index():
     """Serve main application"""
     return render_template('index.html')
