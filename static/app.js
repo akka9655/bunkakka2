@@ -26,7 +26,7 @@ let state = {
 };
 
 function getAcademicYear(roll) { if (!roll || roll.length < 2) return null; const y = parseInt('20' + roll.substring(0, 2)), c = new Date().getFullYear(), m = new Date().getMonth() + 1; return Math.max(1, Math.min(5, (m >= 1 && m <= 5 ? c - 1 : c) - y + 1)); }
-function isAbsoluteGradingSystem(roll) { if (!roll || roll.length < 2) return false; try { return parseInt('20' + roll.substring(0, 2)) >= 2025; } catch (e) { return false; } }
+function isAbsoluteGradingSystem(roll) { if (!roll || roll.length < 2) return false; try { return parseInt('20' + roll.substring(0, 2)) >= 2024; } catch (e) { return false; } }
 function getCourseType(roll) { if (!roll || roll.length < 3) return null; const l = roll.substring(2); if (l.length >= 2 && CONFIG.COURSE_CODES[l.substring(0, 2).toUpperCase()]) return CONFIG.COURSE_CODES[l.substring(0, 2).toUpperCase()]; return CONFIG.COURSE_CODES[l.charAt(0).toUpperCase()] || null; }
 function getPlannerId(roll) { return CONFIG.PLANNER_MAP[`${getCourseType(roll)}_${getAcademicYear(roll)}`] || null; }
 
@@ -670,6 +670,96 @@ function downloadAndroidApk() {
     showToast('Downloading Bunker APK...', 'success');
 }
 
+function checkAndroidApkPrompt() {
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    if (!isAndroid) return;
+
+    const seenKey = 'bunker_android_apk_popup_seen';
+    if (localStorage.getItem(seenKey)) return;
+
+    // Delay popup slightly (1.2s) after entering dashboard for smooth transition
+    setTimeout(() => {
+        showAndroidApkModal();
+    }, 1200);
+}
+
+function showAndroidApkModal() {
+    const seenKey = 'bunker_android_apk_popup_seen';
+    localStorage.setItem(seenKey, 'true');
+
+    // Avoid duplicate modals
+    const existing = document.getElementById('android-apk-popup-modal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'android-apk-popup-modal';
+    modal.className = "fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-4 sm:p-6 bg-black/80 backdrop-blur-md transition-all duration-300";
+    modal.style.opacity = '0';
+
+    modal.innerHTML = `
+        <div class="w-full max-w-sm rounded-[32px] overflow-hidden border border-white/10 shadow-2xl glass-panel relative transform translate-y-8 sm:translate-y-0 sm:scale-95 transition-all duration-300" style="background: linear-gradient(160deg, rgba(16, 14, 30, 0.96) 0%, rgba(8, 7, 16, 0.98) 100%) !important;">
+            <!-- Ambient glowing decoration -->
+            <div class="absolute -right-10 -top-10 w-32 h-32 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none"></div>
+            <div class="absolute -left-10 -bottom-10 w-32 h-32 rounded-full bg-indigo-500/15 blur-3xl pointer-events-none"></div>
+
+            <div class="p-6 relative z-10 text-center">
+                <!-- Close Button -->
+                <button onclick="closeAndroidApkModal()" class="absolute right-5 top-5 w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/10 transition-colors">
+                    <i class="fas fa-times text-xs"></i>
+                </button>
+
+                <!-- Icon Badge -->
+                <div class="w-16 h-16 rounded-3xl bg-gradient-to-br from-emerald-500/20 to-indigo-500/20 border border-emerald-500/30 flex items-center justify-center mx-auto mb-4 shadow-[0_0_25px_rgba(16,185,129,0.25)]">
+                    <i class="fab fa-android text-3xl text-emerald-400"></i>
+                </div>
+
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[9px] font-black uppercase tracking-widest mb-2">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    Official Android App
+                </span>
+
+                <h3 class="text-xl font-black text-white tracking-tight mb-1.5">Android App Available!</h3>
+                <p class="text-xs text-gray-300/80 leading-relaxed max-w-[260px] mx-auto mb-6">
+                    Install the official Bunker Android APK for instant offline access, push updates, and faster speeds.
+                </p>
+
+                <div class="space-y-2.5">
+                    <button onclick="handleDownloadAndCloseModal()" class="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2.5 shadow-[0_4px_20px_rgba(16,185,129,0.35)] active:scale-95 transition-all">
+                        <i class="fas fa-download text-sm"></i>
+                        <span>Install Android APK</span>
+                    </button>
+                    <button onclick="closeAndroidApkModal()" class="w-full py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white font-bold text-xs transition-colors">
+                        Maybe Later
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    requestAnimationFrame(() => {
+        modal.style.opacity = '1';
+        const card = modal.querySelector('.glass-panel');
+        if (card) {
+            card.classList.remove('translate-y-8', 'sm:scale-95');
+            card.classList.add('translate-y-0', 'sm:scale-100');
+        }
+    });
+}
+
+function closeAndroidApkModal() {
+    const modal = document.getElementById('android-apk-popup-modal');
+    if (!modal) return;
+    modal.style.opacity = '0';
+    setTimeout(() => modal.remove(), 300);
+}
+
+function handleDownloadAndCloseModal() {
+    downloadAndroidApk();
+    closeAndroidApkModal();
+}
+
 function triggerPwaInstall() {
     if (window.pwaManager.deferredPrompt) {
         window.pwaManager.deferredPrompt.prompt();
@@ -1065,10 +1155,16 @@ function enterApp() {
             complete: () => {
                 login.classList.add('hidden'); dash.classList.remove('hidden');
                 initDashboard();
+                checkAndroidApkPrompt();
                 anime({ targets: dash, opacity: [0, 1], scale: [1.05, 1], duration: 500, easing: 'easeOutQuad' });
             }
         });
-    } else { login.classList.add('hidden'); dash.classList.remove('hidden'); initDashboard(); }
+    } else { 
+        login.classList.add('hidden'); 
+        dash.classList.remove('hidden'); 
+        initDashboard(); 
+        checkAndroidApkPrompt();
+    }
 }
 
 // Helper: Get 'Current' Date (Real or Simulated)
@@ -1121,22 +1217,28 @@ function renderSemesterHero() {
     }
 
     heroContainer.innerHTML = `
-                <div class="glass-panel rounded-[32px] p-5 relative overflow-hidden border border-white/5 border-l-4" style="border-left-color: var(--primary);">
+                <div class="glass-panel rounded-[32px] p-5 relative overflow-hidden group">
+                    <div class="absolute -right-8 -top-8 w-28 h-28 rounded-full bg-indigo-500/10 blur-2xl pointer-events-none group-hover:bg-indigo-500/20 transition-all duration-500"></div>
                     <div class="flex justify-between items-end mb-4 relative z-10">
-                        <div>
-                            <h3 class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Progress</h3>
-                            <div class="text-xs text-indigo-300 font-bold truncate max-w-[150px]">${ACADEMIC_DATA.name}</div>
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.2)]">
+                                <i class="fas fa-chart-line text-sm"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] mb-0.5">Semester Progress</h3>
+                                <div class="text-xs font-bold text-white tracking-wide truncate max-w-[160px]">${ACADEMIC_DATA.name}</div>
+                            </div>
                         </div>
                         <div class="text-right">
-                            <span class="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-br from-white to-gray-500 tracking-tighter">${Math.round(pct)}%</span>
+                            <span class="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-br from-white via-indigo-100 to-indigo-400 tracking-tighter drop-shadow-[0_0_12px_rgba(99,102,241,0.3)]">${Math.round(pct)}%</span>
                         </div>
                     </div>
-                    <div class="relative h-2 w-full bg-white/5 rounded-full mb-2 overflow-hidden">
-                        <div class="absolute left-0 top-0 bottom-0 rounded-full transition-all duration-1000 w-0" style="width:${pct}%; background: linear-gradient(90deg, var(--primary), var(--accent)); box-shadow: 0 0 20px var(--primary);"></div>
+                    <div class="relative h-2.5 w-full bg-black/40 rounded-full mb-3 overflow-hidden border border-white/5 shadow-inner">
+                        <div class="absolute left-0 top-0 bottom-0 rounded-full transition-all duration-1000" style="width:${pct}%; background: linear-gradient(90deg, #6366f1, #a855f7); box-shadow: 0 0 15px rgba(168,85,247,0.5);"></div>
                     </div>
-                    <div class="flex justify-between text-[9px] font-bold text-gray-500 uppercase tracking-widest">
-                        <span>${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                        <span>${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                    <div class="flex justify-between text-[9px] font-black text-gray-500 uppercase tracking-widest">
+                        <span class="flex items-center gap-1.5"><i class="fas fa-play text-[7px] text-indigo-400"></i> ${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        <span class="flex items-center gap-1.5">${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} <i class="fas fa-flag-checkered text-[7px] text-purple-400"></i></span>
                     </div>
                 </div>
             `;
@@ -1419,7 +1521,7 @@ function renderSubjects() {
         }
 
         const d = document.createElement('div');
-        d.className = `bg-white/[0.03] border border-white/5 backdrop-blur-xl shadow-xl rounded-[28px] overflow-hidden transition-all duration-300 mb-4 cursor-pointer active:scale-[0.98] border-l-4 ${bor}`;
+        d.className = `glass-panel rounded-[30px] overflow-hidden transition-all duration-300 mb-4 cursor-pointer active:scale-[0.98] border-l-4 ${bor}`;
         d.onclick = (e) => { if (!e.target.closest('button')) openSim(sub.code) };
         
         d.innerHTML = `
@@ -1443,10 +1545,11 @@ function renderSubjects() {
                 <div class="w-full bg-black/40 h-2.5 rounded-full overflow-hidden mb-5 border border-white/5 shadow-inner">
                     <div class="h-full ${bar} rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_currentColor] opacity-90" style="width:${pct}%"></div>
                 </div>
-                <div class="flex justify-between items-center z-10 relative">
+                <div class="flex justify-between items-center z-10 relative gap-2">
                     ${stat}
-                    <button class="w-10 h-10 rounded-[14px] bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 hover:bg-indigo-500/20 transition-all active:scale-90 shadow-[0_0_15px_rgba(99,102,241,0.15)] group">
-                        <i class="fas fa-magic text-sm group-hover:rotate-12 transition-transform duration-300"></i>
+                    <button onclick="openSim('${sub.code}')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-300 hover:bg-indigo-500/20 hover:border-indigo-400/40 hover:text-white transition-all active:scale-95 shadow-[0_2px_12px_rgba(99,102,241,0.15)] group shrink-0">
+                        <i class="fas fa-wand-magic-sparkles text-[10px] text-indigo-400 group-hover:rotate-12 transition-transform duration-300"></i>
+                        <span class="text-[9px] font-black uppercase tracking-wider">Tap to simulate</span>
                     </button>
                 </div>
             </div>`;
@@ -2739,7 +2842,7 @@ function renderInternals(internals) {
         const typeColor = isTheory ? 'indigo' : 'teal';
 
         listHTML += `
-        <div id="card-${sub.course_code}" class="bg-white/[0.03] border border-white/5 backdrop-blur-xl shadow-xl rounded-[28px] overflow-hidden transition-all duration-300 mb-4">
+        <div id="card-${sub.course_code}" class="glass-panel rounded-[30px] overflow-hidden transition-all duration-300 mb-4 border border-white/10">
             <div class="p-5 relative overflow-hidden cursor-pointer active:scale-[0.98] transition-all" onclick="toggleInternalCard('${sub.course_code}')">
                 <div class="absolute -right-4 -top-4 opacity-[0.03] pointer-events-none text-8xl text-white">
                     <i class="fas ${iconName}"></i>
@@ -2770,8 +2873,14 @@ function renderInternals(internals) {
                         </div>
                     </div>
                 </div>
-                <div class="mt-4 h-1 w-full bg-black/50 rounded-full overflow-hidden" id="bar-${sub.course_code}">
-                     <div class="h-full bg-${typeColor}-500" style="width: ${Math.min(100,(currentOutOf40/displayMax)*100).toFixed(1)}%"></div>
+                <div class="mt-4 flex items-center justify-between gap-3">
+                    <div class="flex-1 h-1.5 bg-black/50 rounded-full overflow-hidden" id="bar-${sub.course_code}">
+                         <div class="h-full bg-${typeColor}-500 transition-all duration-700" style="width: ${Math.min(100,(currentOutOf40/displayMax)*100).toFixed(1)}%"></div>
+                    </div>
+                    <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[8px] font-black uppercase tracking-wider shrink-0">
+                        <i class="fas fa-wand-magic-sparkles text-[9px] text-indigo-400"></i>
+                        <span>Tap to simulate</span>
+                    </div>
                 </div>
             </div>
 

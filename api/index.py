@@ -219,13 +219,13 @@ def detect_college(roll_number):
 
 
 def is_absolute_grading(roll_number):
-    """Check if the student follows the Absolute Grading System (admitted 2025-26 onwards)"""
+    """Check if the student follows the Absolute Grading System (admitted 2024-25 onwards)"""
     if not roll_number:
         return False
     roll_number = roll_number.strip().upper()
     try:
         admission_year = int('20' + roll_number[:2])
-        return admission_year >= 2025
+        return admission_year >= 2024
     except:
         return False
 

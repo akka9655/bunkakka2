@@ -1,2 +1,13 @@
 github token.md
 m.md
+n.md
+.venv/
+venv/
+/.venv/
+/venv/
+__pycache__/
+api/__pycache__/
+*.pyc
+test_wsgi.py
+api/test_wsgi.py
+api/test_headers.py
