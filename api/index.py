@@ -1,4 +1,4 @@
-"""
+r"""
 Smart Bunker - Flask Backend
 ============================
 Attendance tracking and bunker-planning system that supports three colleges:
@@ -35,6 +35,7 @@ API Endpoints:
 """
 
 from flask import Flask, render_template, request, jsonify
+from werkzeug.exceptions import HTTPException
 import requests
 from bs4 import BeautifulSoup
 import math
@@ -43,8 +44,9 @@ import os
 import logging
 import re
 import json
+import secrets
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=os.environ.get('LOG_LEVEL', 'INFO').upper())
 logger = logging.getLogger(__name__)
 
 # ============================================================================
@@ -118,12 +120,56 @@ CONFIG = {
 
 app = Flask(__name__, template_folder='templates', static_folder='../static')
 
+IS_PRODUCTION = bool(os.environ.get("VERCEL")) and os.environ.get("VERCEL_ENV") == "production"
+
+# ---------------------------------------------------------------------------
+# Network timeout budget
+#
+# The serverless function has a hard wall-clock limit (see vercel.json). Each
+# request may make several sequential upstream calls, so per-call timeouts are
+# kept well under that limit to guarantee we return a real JSON error instead
+# of being killed mid-flight (which surfaces to users as a platform 504).
+# ---------------------------------------------------------------------------
+PORTAL_TIMEOUT = (5, 12)        # (connect, read) for college portals
+EXTERNAL_API_TIMEOUT = (5, 15)  # third-party CGPA history service
+CALENDAR_TIMEOUT = (5, 10)      # academic calendar API
+
 session_secret = os.environ.get("SESSION_SECRET")
 if not session_secret:
-    logger.warning("SESSION_SECRET not set - using development fallback")
-    session_secret = "bunker-dev-secret-key-change-in-production"
+    if IS_PRODUCTION:
+        # Never ship a known secret to production. A random per-instance key is
+        # safe here because no server-side session state is persisted.
+        session_secret = secrets.token_urlsafe(32)
+        logger.warning("SESSION_SECRET not set - generated an ephemeral key")
+    else:
+        logger.warning("SESSION_SECRET not set - using development fallback")
+        session_secret = "bunker-dev-secret-key-change-in-production"
 
 app.secret_key = session_secret
+
+# Reject oversized bodies before they are parsed (all endpoints take small JSON).
+app.config['MAX_CONTENT_LENGTH'] = 64 * 1024
+app.config['JSON_SORT_KEYS'] = False
+app.config['TRAP_HTTP_EXCEPTIONS'] = False
+
+
+@app.errorhandler(413)
+def payload_too_large(_e):
+    return jsonify({'success': False, 'error': 'Request body too large'}), 413
+
+
+@app.errorhandler(404)
+def not_found(e):
+    """API routes return JSON; everything else falls back to the SPA shell."""
+    if request.path.startswith('/api/'):
+        return jsonify({'success': False, 'error': 'Not found'}), 404
+    return render_template('index.html'), 200
+
+
+@app.errorhandler(500)
+def internal_error(e):
+    logger.error(f"Unhandled server error on {request.path}: {e}")
+    return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 
 # Helper functions for calendar API
@@ -205,13 +251,37 @@ def detect_college(roll_number):
         return 'CEG'
     
     # --- Rule 2: PSG Tech ---
-    # PSG Tech roll numbers contain uppercase letters (course code) after the year.
-    # e.g. 22CSA01 → letters 'C' or 'CS' map to a known course type.
-    match = re.search(r'[A-Z]+', roll_number)
+    # PSG Tech rolls are YY + course code + serial, where the code is 1-2 chars
+    # from COURSE_CODES and the serial is digits, e.g. 22CS001, 22C0001, 23MX001.
+    # A trailing letter is allowed for lab/section variants, e.g. 22CSA01.
+    #
+    # The exact shape matters: matching a bare code prefix would wrongly claim
+    # PSG IAS rolls like 25IR007 (leading 'I' is also a PSG Tech code), while
+    # matching the whole letter run would drop 3-letter codes like 22CSA01.
+    # PSG Tech: total length is 6-7 and the serial is 2 digits (22CS001 is 2
+    # digits + code + '001' style, 22CSA01 is code + section + 2-digit serial).
+    # PSG IAS rolls such as 25IR007 use a 3-digit serial, which is what keeps
+    # the two apart when both have a 3-character letter run.
+    match = re.match(r'^(\d{2})([A-Z]{1,3})(\d+)$', roll_number)
     if match:
-        course_code = match.group(0)
-        if course_code in CONFIG['COURSE_CODES']:
-            return 'PSGTECH'
+        letters, serial = match.group(2), match.group(3)
+
+        # Prefer the longest valid code prefix, mirroring get_course_type().
+        code = None
+        if letters[:2] in CONFIG['COURSE_CODES']:
+            code = letters[:2]
+        elif letters[:1] in CONFIG['COURSE_CODES']:
+            code = letters[:1]
+
+        if code:
+            suffix_len = len(letters) - len(code)
+            # An exact code match (no leftover letters) is unambiguous.
+            if suffix_len == 0:
+                return 'PSGTECH'
+            # With a leftover letter, only a 2-digit serial is PSG Tech
+            # (22CSA01). A 3-digit serial means PSG IAS (25IR007).
+            if suffix_len == 1 and len(serial) <= 2:
+                return 'PSGTECH'
 
     # --- Rule 3: PSG IAS (default) ---
     # Roll numbers with letters not in PSG Tech's course code list (e.g. 25IR007)
@@ -258,7 +328,7 @@ class EcampusScraper:
     def _login(self, username, password):
         """Authenticate with eCampus"""
         try:
-            login_page = self.session.get(self.ECAMPUS_URL, timeout=15)
+            login_page = self.session.get(self.ECAMPUS_URL, timeout=PORTAL_TIMEOUT)
             soup = BeautifulSoup(login_page.text, 'html.parser')
             
             view_state = soup.find('input', {'name': '__VIEWSTATE'})
@@ -278,7 +348,7 @@ class EcampusScraper:
                 'abcd3': 'Login'
             }
             
-            response = self.session.post(login_page.url, data=login_data, timeout=15)
+            response = self.session.post(login_page.url, data=login_data, timeout=PORTAL_TIMEOUT)
             
             if 'Invalid' in response.text or response.status_code != 200:
                 return False
@@ -295,7 +365,7 @@ class EcampusScraper:
         
         try:
             attendance_url = f"{self.ECAMPUS_URL}AttWfPercView.aspx"
-            response = self.session.get(attendance_url, timeout=15)
+            response = self.session.get(attendance_url, timeout=PORTAL_TIMEOUT)
             soup = BeautifulSoup(response.text, 'html.parser')
             
             table = soup.find('table', {'class': 'cssbody'})
@@ -371,7 +441,7 @@ class EcampusScraper:
         
         try:
             timetable_url = f"{self.ECAMPUS_URL}AttWfStudTimtab.aspx"
-            response = self.session.get(timetable_url, timeout=15)
+            response = self.session.get(timetable_url, timeout=PORTAL_TIMEOUT)
             soup = BeautifulSoup(response.text, 'html.parser')
             
             table = soup.find('table', {'id': 'TbCourDesc'})
@@ -397,7 +467,7 @@ class EcampusScraper:
         
         try:
             timetable_url = f"{self.ECAMPUS_URL}AttWfStudTimtab.aspx"
-            response = self.session.get(timetable_url, timeout=15)
+            response = self.session.get(timetable_url, timeout=PORTAL_TIMEOUT)
             soup = BeautifulSoup(response.text, 'html.parser')
             
             course_mapping, _ = self.get_timetable()
@@ -458,7 +528,7 @@ class EcampusScraper:
         
         try:
             timetable_url = f"{self.ECAMPUS_URL}AttWfStudTimtab.aspx"
-            response = self.session.get(timetable_url, timeout=15)
+            response = self.session.get(timetable_url, timeout=PORTAL_TIMEOUT)
             soup = BeautifulSoup(response.text, 'html.parser')
             
             name_element = soup.find('span', {'id': 'lbluser'})
@@ -497,7 +567,7 @@ class EcampusIASScraper:
         """Authenticate with PSG IAS eCampus"""
         try:
             login_url = f"{self.ECAMPUS_URL}Login/UserLogin"
-            login_page = self.session.get(login_url, timeout=15)
+            login_page = self.session.get(login_url, timeout=PORTAL_TIMEOUT)
             soup = BeautifulSoup(login_page.text, 'html.parser')
             
             # Get CSRF token
@@ -513,7 +583,7 @@ class EcampusIASScraper:
             }
             
             response = self.session.post(f"{self.ECAMPUS_URL}Login/UserLoginTest", 
-                                        data=login_data, timeout=15, allow_redirects=True)
+                                        data=login_data, timeout=PORTAL_TIMEOUT, allow_redirects=True)
             
             # Check if login was successful
             if 'Invalid' in response.text or 'Login' in response.url:
@@ -532,7 +602,7 @@ class EcampusIASScraper:
         
         try:
             attendance_url = f"{self.ECAMPUS_URL}AttpercCons/AttPercCons"
-            response = self.session.get(attendance_url, timeout=15)
+            response = self.session.get(attendance_url, timeout=PORTAL_TIMEOUT)
             soup = BeautifulSoup(response.text, 'html.parser')
             
             # Look for table with class "table card-table table-vcenter text-wrap datatable"
@@ -643,7 +713,7 @@ class EcampusIASScraper:
             # 1. Fetch Home
             try:
                 home_url = f"{self.ECAMPUS_URL}Home/Home"
-                response = self.session.get(home_url, timeout=15)
+                response = self.session.get(home_url, timeout=PORTAL_TIMEOUT)
                 soup = BeautifulSoup(response.text, 'html.parser')
                 tables = soup.find_all('table')
                 for t in tables:
@@ -656,7 +726,7 @@ class EcampusIASScraper:
             # 2. Fetch TimeTableStud
             try:
                 tt_url = f"{self.ECAMPUS_URL}TimeTableStud/TimeTableStud"
-                response = self.session.get(tt_url, timeout=15)
+                response = self.session.get(tt_url, timeout=PORTAL_TIMEOUT)
                 soup = BeautifulSoup(response.text, 'html.parser')
                 t = soup.find('table', {'class': 'table'})
                 if t:
@@ -736,7 +806,7 @@ class EcampusIASScraper:
         
         try:
             home_url = f"{self.ECAMPUS_URL}Home/Home"
-            response = self.session.get(home_url, timeout=15)
+            response = self.session.get(home_url, timeout=PORTAL_TIMEOUT)
             soup = BeautifulSoup(response.text, 'html.parser')
             
             # Look for student name in the navbar/header
@@ -793,7 +863,7 @@ class EcampusCEGScraper:
         try:
             # 1. GET UserLogin to fetch cookies
             login_url = f"{self.ECAMPUS_URL}Login/UserLogin"
-            self.session.get(login_url, timeout=15)
+            self.session.get(login_url, timeout=PORTAL_TIMEOUT)
 
             # 2. POST to LoginVerification
             verification_url = f"{self.ECAMPUS_URL}Login/LoginVerification"
@@ -802,7 +872,7 @@ class EcampusCEGScraper:
                 'inPassword': password
             }
             
-            response = self.session.post(verification_url, data=login_data, timeout=15)
+            response = self.session.post(verification_url, data=login_data, timeout=PORTAL_TIMEOUT)
             res_data = response.json()
             logger.info(f"CEG LoginVerification Response: {res_data}")
 
@@ -817,7 +887,7 @@ class EcampusCEGScraper:
                 'ipAddress': '127.0.0.1',
                 'loginActivity': 'User Logged In'
             }
-            self.session.post(session_data_url, data=session_payload, timeout=15)
+            self.session.post(session_data_url, data=session_payload, timeout=PORTAL_TIMEOUT)
             
             return True
         except Exception as e:
@@ -836,7 +906,7 @@ class EcampusCEGScraper:
             
             # Fetch the courses for current semester
             courses_url = f"{self.ECAMPUS_URL}Student/Students_Attendance_Detail/fetchCourseCodeForCurrSemester"
-            courses_resp = self.session.post(courses_url, headers=headers, timeout=15)
+            courses_resp = self.session.post(courses_url, headers=headers, timeout=PORTAL_TIMEOUT)
             courses_data = courses_resp.json()
             
             course_details = courses_data.get('courseDetail', [])
@@ -859,7 +929,7 @@ class EcampusCEGScraper:
                     'session_id': session_id,
                     'mark_id': mark_id
                 }
-                detail_resp = self.session.post(detail_url, data=payload, headers=headers, timeout=15)
+                detail_resp = self.session.post(detail_url, data=payload, headers=headers, timeout=PORTAL_TIMEOUT)
                 detail_data = detail_resp.json()
                 
                 course_name = detail_data.get('courseTitle', course_code)
@@ -911,7 +981,7 @@ class EcampusCEGScraper:
             return "Student"
         try:
             home_url = f"{self.ECAMPUS_URL}Home/Index"
-            response = self.session.get(home_url, timeout=20)
+            response = self.session.get(home_url, timeout=PORTAL_TIMEOUT)
             soup = BeautifulSoup(response.text, 'html.parser')
             # Try common name placements in CeGov portal
             for selector in [
@@ -942,7 +1012,18 @@ def serve_sw():
 
 @app.route('/version.json')
 def serve_version():
-    return app.send_from_directory(os.path.join(app.root_path, '..'), 'version.json')
+    """Serve the app version manifest used by the PWA update checker."""
+    version_path = os.path.join(os.path.dirname(app.root_path), 'version.json')
+    try:
+        with open(version_path, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+    except (OSError, ValueError) as e:
+        logger.error(f"version.json unavailable: {e}")
+        payload = {'version': 0, 'downloadUrl': '', 'releaseNotes': ''}
+
+    resp = jsonify(payload)
+    resp.headers['Cache-Control'] = 'public, s-maxage=300, stale-while-revalidate=600'
+    return resp
 
 @app.route('/')
 @app.route('/index.html')
@@ -958,7 +1039,7 @@ def index():
 def api_login():
     """API endpoint for login - Supports both PSG Tech and PSG IAS"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         username = data.get('username', '').strip().upper()
         password = data.get('password', '').strip()
         
@@ -1053,9 +1134,21 @@ def api_login():
 
         return jsonify(response_data)
     
+    except HTTPException:
+        # Let Flask's own error handlers format 413/400/etc.
+        raise
+    except requests.Timeout:
+        logger.warning("Login timed out talking to the college portal")
+        return jsonify({
+            'success': False,
+            'error': 'The college portal is not responding. Please try again.'
+        }), 504
     except Exception as e:
-        logger.error(f"Login API error: {str(e)}")
-        return jsonify({'success': False, 'error': f"Server error: {str(e)}"})
+        logger.exception(f"Login API error: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Server error. Please try again in a moment.'
+        }), 500
 
 
 @app.route('/api/calendar/<roll>')
@@ -1104,7 +1197,7 @@ def api_calendar(roll):
         # Fetch from academic schedule API
         calendar_url = f"https://academicschedule.psgtech.ac.in/api/calendar/{CONFIG['API_YEAR']}/planner/{planner_id}"
         
-        response = requests.get(calendar_url, timeout=10)
+        response = requests.get(calendar_url, timeout=CALENDAR_TIMEOUT)
         
         if response.status_code != 200:
             return jsonify({'error': 'Failed to fetch calendar data'}), response.status_code
@@ -1123,7 +1216,7 @@ def api_calendar(roll):
 def api_internals():
     """Fetch CA internal marks from eCampus"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         auth_token = data.get('auth_token', '')
         
         if not auth_token:
@@ -1142,7 +1235,7 @@ def api_internals():
             return jsonify({'error': 'Authentication failed'}), 401
 
         ca_url = f"{scraper.ECAMPUS_URL}CAMarks_View.aspx"
-        response = scraper.session.get(ca_url, timeout=15)
+        response = scraper.session.get(ca_url, timeout=PORTAL_TIMEOUT)
         soup = BeautifulSoup(response.text, 'html.parser')
 
         internals = []
@@ -1215,9 +1308,14 @@ def api_internals():
 
         return jsonify(internals)
 
+    except HTTPException:
+        raise
+    except requests.Timeout:
+        logger.warning("Internals request timed out")
+        return jsonify({'error': 'The college portal is not responding. Please try again.'}), 504
     except Exception as e:
-        logger.error(f"Internals API error: {str(e)}")
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
+        logger.exception(f"Internals API error: {e}")
+        return jsonify({'error': 'Unable to load internal marks right now'}), 500
 
 
 @app.route('/api/gpa', methods=['POST'])
@@ -1225,7 +1323,7 @@ def api_internals():
 def api_gpa():
     """Fetch GPA / semester result from eCampus"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         auth_token = data.get('auth_token', '')
         
         if not auth_token:
@@ -1243,7 +1341,7 @@ def api_gpa():
             return jsonify({'error': 'Authentication failed'}), 401
 
         gpa_url = f"{scraper.ECAMPUS_URL}FrmEpsStudResult.aspx"
-        response = scraper.session.get(gpa_url, timeout=15)
+        response = scraper.session.get(gpa_url, timeout=PORTAL_TIMEOUT)
         soup = BeautifulSoup(response.text, 'html.parser')
 
         result_table = soup.find('table', id='DgResult')
@@ -1321,9 +1419,14 @@ def api_gpa():
             'table': courses
         })
 
+    except HTTPException:
+        raise
+    except requests.Timeout:
+        logger.warning("GPA request timed out")
+        return jsonify({'error': 'The college portal is not responding. Please try again.'}), 504
     except Exception as e:
-        logger.error(f"GPA API error: {str(e)}")
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
+        logger.exception(f"GPA API error: {e}")
+        return jsonify({'error': 'Unable to load GPA data right now'}), 500
 
 
 @app.route('/api/cgpa', methods=['POST'])
@@ -1331,7 +1434,7 @@ def api_gpa():
 def api_cgpa():
     """Fetch CGPA from easycollege API (all semesters) and local scraping for subjects"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         auth_token = data.get('auth_token', '')
         
         if not auth_token:
@@ -1351,7 +1454,7 @@ def api_cgpa():
         all_subjects = []
         if scraper.authenticated:
             gpa_url = f"{scraper.ECAMPUS_URL}FrmEpsStudResult.aspx"
-            response = scraper.session.get(gpa_url, timeout=15)
+            response = scraper.session.get(gpa_url, timeout=PORTAL_TIMEOUT)
             soup = BeautifulSoup(response.text, 'html.parser')
 
             result_table = soup.find('table', id='DgResult')
@@ -1414,32 +1517,49 @@ def api_cgpa():
         
         # -------------------------------------------------------------------
         # 2. Proxy to easycollege API to get full previous semester CGPA data
+        #
+        # This is a free-tier third-party host that can cold-start or go down.
+        # Timeouts are kept inside the serverless function budget and any
+        # failure degrades to the subject list we already scraped above,
+        # instead of failing the whole request.
         # -------------------------------------------------------------------
-        API = "https://easycollege-4fiy.onrender.com"
-        
-        login_res = requests.post(f"{API}/api/login", json={
-            "roll_number": roll.upper(),
-            "password": password,
-            "login_type": "S"
-        }, timeout=20)
-        
-        if login_res.status_code != 200:
-            return jsonify({'error': 'External API login failed'}), 500
-            
-        login_data = login_res.json()
-        if not login_data.get('success'):
-            return jsonify({'error': login_data.get('error', 'External Login failed')}), 401
-            
-        ext_token = login_data.get('auth_token')
-        
-        cgpa_res = requests.post(f"{API}/api/cgpa", json={
-            "auth_token": ext_token
-        }, timeout=20)
-        
-        if cgpa_res.status_code != 200:
-            return jsonify({'error': 'External API CGPA fetch failed'}), 500
-            
-        ext_data = cgpa_res.json()
+        API = os.environ.get('CGPA_API_URL', "https://easycollege-4fiy.onrender.com")
+        ext_data = {}
+        ext_error = None
+
+        try:
+            login_res = requests.post(f"{API}/api/login", json={
+                "roll_number": roll.upper(),
+                "password": password,
+                "login_type": "S"
+            }, timeout=EXTERNAL_API_TIMEOUT)
+
+            if login_res.status_code != 200:
+                ext_error = 'Semester history service is unavailable'
+            else:
+                login_data = login_res.json()
+                if not login_data.get('success'):
+                    ext_error = login_data.get('error', 'External login failed')
+                else:
+                    cgpa_res = requests.post(f"{API}/api/cgpa", json={
+                        "auth_token": login_data.get('auth_token')
+                    }, timeout=EXTERNAL_API_TIMEOUT)
+
+                    if cgpa_res.status_code != 200:
+                        ext_error = 'Semester history service is unavailable'
+                    else:
+                        ext_data = cgpa_res.json() or {}
+        except requests.Timeout:
+            ext_error = 'Semester history service timed out'
+            logger.warning("CGPA external API timed out")
+        except (requests.RequestException, ValueError) as e:
+            ext_error = 'Semester history service is unavailable'
+            logger.warning(f"CGPA external API error: {e}")
+
+        # If we have neither external history nor scraped subjects, it is a real failure.
+        if ext_error and not all_subjects:
+            return jsonify({'error': ext_error}), 503
+
         
         # -------------------------------------------------------------------
         # 3. Format data for the frontend
@@ -1471,16 +1591,22 @@ def api_cgpa():
                 
         semwise_formatted.sort(key=lambda x: x['sem'])
 
-        return jsonify({
+        payload = {
             'cgpa': overall_cgpa,
             'total_credits': total_credits,
             'semwise_data': semwise_formatted,
             'all_subjects': all_subjects
-        })
+        }
+        if ext_error:
+            payload['partial'] = True
+            payload['warning'] = ext_error
+        return jsonify(payload)
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"CGPA API proxy error: {str(e)}")
-        return jsonify({'error': f'Server error: {str(e)}'}), 500
+        logger.exception(f"CGPA API proxy error: {e}")
+        return jsonify({'error': 'Unable to load CGPA data right now'}), 500
 
 
 
@@ -1502,4 +1628,6 @@ def health():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(debug=True, host='0.0.0.0', port=port)
+    # Debug mode is opt-in only; it must never be enabled on a deployment.
+    debug = os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true', 'yes')
+    app.run(debug=debug, host='0.0.0.0', port=port)

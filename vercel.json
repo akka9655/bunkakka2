@@ -1,8 +1,7 @@
 {
   "functions": {
     "api/index.py": {
-      "maxDuration": 60,
-      "memory": 512
+      "maxDuration": 60
     }
   },
   "rewrites": [
@@ -48,7 +47,7 @@
     },
     {
       "source": "/version.json",
-      "destination": "/version.json"
+      "destination": "/api/index.py"
     },
     {
       "source": "/static/(.*)",
@@ -56,11 +55,11 @@
     },
     {
       "source": "/api/(.*)",
-      "destination": "api/index.py"
+      "destination": "/api/index.py"
     },
     {
       "source": "/(.*)",
-      "destination": "api/index.py"
+      "destination": "/api/index.py"
     }
   ],
   "headers": [
